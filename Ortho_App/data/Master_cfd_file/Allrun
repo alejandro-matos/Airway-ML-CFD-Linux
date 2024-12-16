@@ -1,0 +1,30 @@
+#!/bin/sh
+source /usr/lib/openfoam/openfoam2306/etc/bashrc
+cd "${0%/*}" || exit                                # Run from this directory
+. ${WM_PROJECT_DIR:?}/bin/tools/RunFunctions        # Tutorial run functions
+#------------------------------------------------------------------------------
+runApplication surfaceFeatureExtract
+runApplication blockMesh
+runApplication decomposePar
+runParallel snappyHexMesh
+# mpirun -np 2 snappyHexMesh -parallel >log.snappy
+runApplication reconstructParMesh -latestTime -mergeTol 1E-06 -noZero
+cp -r 3/polyMesh constant/
+rm -rf 3
+rm -rf processor*
+rm log.decomposePar
+#runApplication checkMesh –latestTime
+runApplication decomposePar
+runParallel $(getApplication)
+# mpirun -np 2 simpleFoam -parallel >log.solver
+runApplication reconstructPar -latestTime
+rm -rf processor*
+value2=$PWD
+VAR="$value2/260/U"
+if [ -e "$VAR" ]
+        then
+                echo "Finished"
+        else
+                echo "doesn't exist!"
+fi
+#------------------------------------------------------------------------------

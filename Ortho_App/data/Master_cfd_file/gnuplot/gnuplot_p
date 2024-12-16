@@ -1,0 +1,23 @@
+#!/bin/bash
+
+value2=$PWD
+path_to_file="$value2/postProcessing/probes/0/p"
+path_to_file1="$value2/postProcessing/avgsurf_out/0/surfaceFieldValue.dat"
+path_to_file2="$value2/postProcessing/avgsurf_in/0/surfaceFieldValue.dat"
+
+gnuplot <<- EOF
+     set title "pressure Convergence process for p5t1"
+     set xlabel 'Time'
+     set ylabel 'p [m2/s2]'
+     set grid xtics
+     set grid ytics
+     set grid
+     plot '$path_to_file' u 1:2 w lp pi -1  title 'p probe out', '$path_to_file1' u 1:(($2**2))**(0.5) " %lf %lf (%*lf %*lf %*lf) " w lp pi -1 title 'p surf out',   '$path_to_file' u 1:3 w lp pi -1 title 'p probe in1', '$path_to_file' u 1:4 w lp pi -1 title 'p probe in2', '$path_to_file2' u 1:(($2**2))**(0.5) " %lf %lf (%*lf %*lf %*lf) " w lp pi -1 title 'p surf in'
+     set key outside
+     set output 'p.png'
+     set term png size 800, 600
+     set size 1.0, 1.0
+     replot
+     #pause 1
+     #reread
+EOF

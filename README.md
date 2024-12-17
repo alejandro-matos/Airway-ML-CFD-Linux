@@ -15,7 +15,8 @@ If you use AppNameTk for your work, please cite <!--our paper and -->nnU-Net:
 > Add Uday's and Dr. Lange's work? tk
 
 > Isensee F, Jaeger PF, Kohl SAA, Petersen J, Maier-Hein KH. nnU-Net: a self-configuring method for deep learning-based biomedical image segmentation. Nat Methods. 2021;18(2):203-211. doi:10.1038/s41592-020-01008-z
-<img src="https://github.com/alejandro-matos/SlicerUpperAirwaySegmentator/raw/main/Screenshots/angles.png" width="500"/>
+
+tk add some pictures here
 
 ## System Requirements
 

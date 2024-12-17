@@ -1,130 +1,128 @@
 # main.py
+
+import sys
+import os
+from datetime import datetime
+import tkinter as tk
 from gui.app import OrthoCFDApp
+from gui.utils.app_logger import AppLogger
+
+def setup_environment():
+    """
+    Set up the application environment and verify requirements.
+    
+    Returns:
+        tuple: (success: bool, error_message: str or None)
+    """
+    try:
+        # Create necessary directories
+        required_dirs = ['logs', 'temp', 'output']
+        for directory in required_dirs:
+            os.makedirs(directory, exist_ok=True)
+            
+        # Verify required external applications
+        # Note: Implement actual checks based on your system
+        required_apps = {
+            'Blender': r'C:\Users\aleja\Desktop\Geometries\Airway-ML-CFD-Linux\Ortho_App\config\TemporaryBlenderOpenFoamParaview.bmp',
+            'OpenFOAM': r'C:\Users\aleja\Desktop\Geometries\Airway-ML-CFD-Linux\Ortho_App\config\TemporaryBlenderOpenFoamParaview.bmp',
+            'ParaView': r'C:\Users\aleja\Desktop\Geometries\Airway-ML-CFD-Linux\Ortho_App\config\TemporaryBlenderOpenFoamParaview.bmp'
+        }
+        
+        missing_apps = []
+        for app_name, app_path in required_apps.items():
+            if not os.path.exists(app_path):
+                missing_apps.append(app_name)
+                
+        if missing_apps:
+            return False, f"Missing required applications: {', '.join(missing_apps)}"
+            
+        return True, None
+        
+    except Exception as e:
+        return False, f"Environment setup failed: {str(e)}"
+
+def handle_exception(exc_type, exc_value, exc_traceback):
+    """
+    Global exception handler to log unhandled exceptions.
+    """
+    # Don't handle KeyboardInterrupt
+    if issubclass(exc_type, KeyboardInterrupt):
+        sys.__excepthook__(exc_type, exc_value, exc_traceback)
+        return
+        
+    logger.log_error("Unhandled exception", exc_value)
+    
+    # Show error message to user
+    tk.messagebox.showerror(
+        "Error",
+        "An unexpected error occurred. Please check the log file for details."
+    )
+
+def main():
+    """
+    Main application entry point.
+    """
+    try:
+        # Set up environment
+        success, error_message = setup_environment()
+        if not error_message:
+            logger.log_info("Environment setup successful")
+        else:
+            logger.log_error(f"Environment setup failed: {error_message}")
+            tk.messagebox.showerror("Setup Error", error_message)
+            return
+
+        # Create and start the application
+        logger.log_info("Starting OrthoCFD Application")
+        app = OrthoCFDApp()
+        
+        # Configure application
+        app.protocol("WM_DELETE_WINDOW", lambda: on_closing(app))
+        
+        # Start the main loop
+        app.mainloop()
+        
+    except Exception as e:
+        logger.log_error("Failed to start application", e)
+        tk.messagebox.showerror(
+            "Startup Error",
+            f"Failed to start application: {str(e)}\n\nPlease check the log file for details."
+        )
+
+def on_closing(app):
+    """
+    Handle application closing.
+    """
+    try:
+        # Clean up temporary files
+        temp_dir = 'temp'
+        if os.path.exists(temp_dir):
+            for file in os.listdir(temp_dir):
+                file_path = os.path.join(temp_dir, file)
+                try:
+                    if os.path.isfile(file_path):
+                        os.unlink(file_path)
+                except Exception as e:
+                    logger.log_warning(f"Error deleting temporary file {file_path}: {str(e)}")
+
+        logger.log_info("Application closing")
+        app.destroy()
+        
+    except Exception as e:
+        logger.log_error("Error during application shutdown", e)
+        app.destroy()
 
 if __name__ == "__main__":
-    app = OrthoCFDApp()
-    app.mainloop()
-
-# gui/app.py
-import customtkinter as ctk
-from .tabs.tab1 import Tab1Manager
-from .tabs.tab2 import Tab2Manager
-from .tabs.tab3 import Tab3Manager
-from .tabs.tab4 import Tab4Manager
-from .utils.tooltips import ToolTip
-from .components.buttons import CircularButton
-
-class OrthoCFDApp(ctk.CTk):
-    def __init__(self):
-        super().__init__()
-        self.setup_window()
-        self.initialize_variables()
-        self.setup_gui()
-        
-    def setup_window(self):
-        self.title("Ortho CFD v0.2")
-        self.geometry("600x750")
-        self.minsize(600, 750)
-        self.maxsize(700, 1000)
-        ctk.set_appearance_mode("dark")
-        ctk.set_default_color_theme("green")
-        self.setup_icon()
-        
-    def initialize_variables(self):
-        # Initialize all your StringVar and other variables here
-        self.init_patient_vars()
-        self.init_analysis_vars()
-        self.init_ui_refs()
-        
-    def setup_gui(self):
-        self.main_frame = ctk.CTkFrame(self, corner_radius=10)
-        self.main_frame.pack(fill="both", expand=True, padx=10, pady=10)
-        self.create_tab1()
-        
-    # ... other base methods ...
-
-# gui/tabs/tab1.py
-class Tab1Manager:
-    def __init__(self, app):
-        self.app = app
-        
-    def create_tab(self):
-        # Tab 1 specific implementation
-        pass
-
-# gui/tabs/tab2.py
-class Tab2Manager:
-    def __init__(self, app):
-        self.app = app
-        
-    def create_tab(self):
-        # Tab 2 specific implementation
-        pass
-
-# gui/tabs/tab3.py
-class Tab3Manager:
-    def __init__(self, app):
-        self.app = app
-        
-    def create_tab(self):
-        # Tab 3 specific implementation
-        pass
-
-# gui/tabs/tab4.py
-class Tab4Manager:
-    def __init__(self, app):
-        self.app = app
-        
-    def create_tab(self):
-        # Tab 4 specific implementation
-        pass
-
-# gui/utils/tooltips.py
-class ToolTip:
-    def __init__(self, widget, text):
-        # Tooltip implementation
-        pass
-
-# gui/utils/image_processing.py
-import pydicom
-import numpy as np
-from PIL import Image
-
-def generate_slices(dicom_folder):
-    # Image processing implementation
-    pass
-
-# gui/components/buttons.py
-from tkinter import Canvas
-
-class CircularButton(Canvas):
-    def __init__(self, parent, text, command=None, diameter=30, **kwargs):
-        # CircularButton implementation
-        pass
-
-# gui/components/navigation.py
-import customtkinter as ctk
-
-def create_navigation_frame(parent, current_tab, previous_label, next_label, back_command, next_command):
-    # Navigation frame implementation
-    pass
-
-# config/settings.py
-APP_SETTINGS = {
-    "TITLE": "Ortho CFD v0.2",
-    "MIN_SIZE": (600, 750),
-    "MAX_SIZE": (700, 1000),
-    "THEME": "green"
-}
-
-# utils/file_handlers.py
-import os
-import shutil
-
-def create_patient_folder(base_path, username, patient_name, folder_name):
-    # File handling implementation
-    pass
-
-def validate_dicom_folder(folder_path):
-    # DICOM validation implementation
-    pass
+    # Initialize logger
+    logger = AppLogger()
+    
+    # Set up global exception handler
+    sys.excepthook = handle_exception
+    
+    # Log application start
+    logger.log_info("=" * 50)
+    logger.log_info(f"OrthoCFD Application Starting - {datetime.now()}")
+    logger.log_info("=" * 50)
+    
+    # Run the application
+    main()

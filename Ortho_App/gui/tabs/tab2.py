@@ -215,7 +215,7 @@ class Tab2Manager:
         # Info button - using the app's create_info_button method
         info_button = self._create_info_button(
             combo_frame,
-            "Name folder by condition (e.g., 'OSA_1', 'TMD_followup').\n"
+            "Name folder by condition (e.g., 'OSA', 'TMD').\n"
             "Use existing folder name if following up on same condition."
         )
         info_button.pack(side="left")
@@ -403,9 +403,6 @@ class Tab2Manager:
             base_path = os.path.expanduser("~\\Desktop")
             full_path = os.path.join(base_path, username, patient_name, new_folder)
             
-            # Create directory
-            os.makedirs(full_path, exist_ok=True)
-
             # Let user confirm location
             selected_folder = filedialog.askdirectory(
                 title="Confirm or Adjust Folder Location",
@@ -413,15 +410,24 @@ class Tab2Manager:
             )
 
             if selected_folder:
+                # Update both the folder name and the full path
                 self.app.folder_name_var.set(os.path.basename(selected_folder))
                 self.app.full_folder_path = selected_folder
+                
+                # Show confirmation message with the selected path
+                messagebox.showinfo(
+                    "Success",
+                    f"Selected output folder:\n{selected_folder}"
+                )
+            else:
+                # If user cancels, set the original path
+                self.app.full_folder_path = full_path
 
             # Update the dropdown list of folders
             self._update_folder_dropdown()
 
         except Exception as e:
-            messagebox.showerror("Error", f"Could not create folder: {e}")
-
+            messagebox.showerror("Error", f"Could not set folder path: {e}")
 
     def _validate_and_proceed(self):
         """Validate the form and proceed to next tab"""
@@ -443,4 +449,34 @@ class Tab2Manager:
             )
             return
 
+        # Automatically set up the folder path
+        if not self._setup_folder_path():
+            return
+
         self.app.create_tab3()
+
+    def _setup_folder_path(self):
+        """Automatically set up the folder path based on entered information"""
+        try:
+            username = self.app.username_var.get()
+            patient_name = self.app.patient_name.get()
+            folder_name = self.app.folder_name_var.get()
+
+            if not all([username, patient_name, folder_name]):
+                messagebox.showerror(
+                    "Error",
+                    "Please ensure Username, Patient Name, and Folder Name are all provided."
+                )
+                return False
+
+            # Create the full path
+            base_path = os.path.expanduser("~\\Desktop")
+            full_path = os.path.join(base_path, username, patient_name, folder_name)
+            
+            # Store the full path
+            self.app.full_folder_path = full_path
+            return True
+
+        except Exception as e:
+            messagebox.showerror("Error", f"Could not set up folder path: {e}")
+            return False

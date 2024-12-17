@@ -1,5 +1,5 @@
 # gui/tabs/tab4.py
-
+import os
 import customtkinter as ctk
 from tkinter import ttk, messagebox
 import time
@@ -177,11 +177,31 @@ class Tab4Manager:
             messagebox.showerror("Error", "Please select an analysis type before proceeding.")
             return
 
-        # Show confirmation dialog
+        # Validate folder path exists
+        if not hasattr(self.app, 'full_folder_path'):
+            messagebox.showerror("Error", "No output folder specified. Please return to the patient information page and try again.")
+            return
+
+        # Show confirmation dialog focused on analysis type
+        analysis_type = self.analysis_option.get()
+        message = f"Would you like to proceed with {analysis_type}?\n\n"
+        
+        if "Simulation" in analysis_type:
+            message += "This will:\n" \
+                    "1. Perform airway segmentation\n" \
+                    "2. Generate 3D mesh\n" \
+                    "3. Run CFD simulation\n" \
+                    "4. Analyze airflow patterns"
+        else:
+            message += "This will:\n" \
+                    "1. Perform airway segmentation\n" \
+                    "2. Generate 3D model\n" \
+                    "3. Calculate airway measurements"
+        
         response = messagebox.askquestion(
             "Confirm Analysis",
-            f"Selected analysis: {self.analysis_option.get()}\n\nDo you want to proceed?",
-            icon="warning"
+            message,
+            icon="question"
         )
         
         if response == "yes":
@@ -189,24 +209,33 @@ class Tab4Manager:
 
     def _start_processing(self):
         """Start the processing sequence"""
-        self.processing_active = True
-        self.process_button.configure(state="disabled")
-        
-        # Define processing steps based on analysis type
-        if self.analysis_option.get() == "Airflow Simulation (includes segmentation)":
-            steps = [
-                ("Segmenting airway...", 2),
-                ("Generating mesh...", 2),
-                ("Running CFD simulation...", 3),
-                ("Analyzing results...", 1)
-            ]
-        else:
-            steps = [
-                ("Segmenting airway...", 2),
-                ("Finalizing results...", 1)
-            ]
+        try:
+            # Create the output folder if it doesn't exist
+            os.makedirs(self.app.full_folder_path, exist_ok=True)
+            
+            self.processing_active = True
+            self.process_button.configure(state="disabled")
+            
+            # Define processing steps based on analysis type
+            if self.analysis_option.get() == "Airflow Simulation (includes segmentation)":
+                steps = [
+                    ("Segmenting airway...", 2),
+                    ("Generating mesh...", 2),
+                    ("Running CFD simulation...", 3),
+                    ("Analyzing results...", 1)
+                ]
+            else:
+                steps = [
+                    ("Segmenting airway...", 2),
+                    ("Finalizing results...", 1)
+                ]
 
-        self._process_steps(steps)
+            self._process_steps(steps)
+
+        except Exception as e:
+            self.processing_active = False
+            self.process_button.configure(state="normal")
+            messagebox.showerror("Error", f"Failed to create output folder:\n{str(e)}")
 
     def _process_steps(self, steps):
         """Process multiple steps sequentially"""

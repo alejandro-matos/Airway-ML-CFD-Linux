@@ -55,8 +55,8 @@ class Tab4Manager:
 
     def _create_main_content(self):
         """Create the main content area with analysis options and processing sections"""
-        # Main content frame
-        content_frame = ctk.CTkFrame(self.app.main_frame, corner_radius=10)
+        # Main content frame - this should be transparent too
+        content_frame = ctk.CTkFrame(self.app.main_frame, corner_radius=10, fg_color="transparent")
         content_frame.pack(fill="both", expand=True, padx=20, pady=20)
 
         # Analysis options section
@@ -70,7 +70,7 @@ class Tab4Manager:
 
     def _create_analysis_section(self, parent):
         """Create the analysis options section"""
-        analysis_section = FormSection(parent, "Analysis Options")
+        analysis_section = FormSection(parent, "Analysis Options", fg_color="transparent")
         analysis_section.pack(fill="x", pady=10)
 
         # Analysis type dropdown
@@ -101,7 +101,7 @@ class Tab4Manager:
 
     def _create_processing_section(self, parent):
         """Create the processing section with progress bar"""
-        processing_section = FormSection(parent, "Processing")
+        processing_section = FormSection(parent, "Processing", fg_color="transparent")
         processing_section.pack(fill="x", pady=10)
 
         # Start button
@@ -121,7 +121,7 @@ class Tab4Manager:
 
     def _create_results_section(self, parent):
         """Create the results section (initially hidden)"""
-        results_frame = ctk.CTkFrame(parent, corner_radius=10)
+        results_frame = ctk.CTkFrame(parent, corner_radius=10, fg_color="transparent")
         
         # Title
         ctk.CTkLabel(

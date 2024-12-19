@@ -63,7 +63,7 @@ class Tab2Manager:
         # Section Title
         ctk.CTkLabel(
             upload_frame,
-            text="Step 1: Upload Patient Scans",
+            text="Upload Patient Scans",
             font=("Arial", 15, "bold")
         ).pack(pady=(5, 0))
 
@@ -92,7 +92,7 @@ class Tab2Manager:
         # Section Title
         ctk.CTkLabel(
             info_frame,
-            text="Step 2: Patient Information",
+            text="Patient Information",
             font=("Arial", 15, "bold")
         ).pack(pady=(5, 10))
 
@@ -165,7 +165,7 @@ class Tab2Manager:
         # Section Title
         ctk.CTkLabel(
             folder_frame,
-            text="Save Location",
+            text="Case Label",
             font=("Arial", 15, "bold")
         ).pack(pady=(5, 10))
 
@@ -179,7 +179,7 @@ class Tab2Manager:
         # Label
         ctk.CTkLabel(
             selection_frame,
-            text="Enter or select folder name:",
+            text="Enter or select folder name from drop down menu:",
             anchor="e"
         ).grid(row=0, column=0, padx=(0, 10), pady=5, sticky="e")
 

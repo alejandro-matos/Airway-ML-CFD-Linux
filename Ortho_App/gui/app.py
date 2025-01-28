@@ -58,13 +58,16 @@ class OrthoCFDApp(ctk.CTk):
         
         # Set icon
         self.setup_icon()
-
+    
     def setup_icon(self):
         """Set up the application icon"""
         try:
-            icon_image = Image.open("CFDLab-blogo2.png")
-            icon_image.save("CFDLab-blogo2.ico", format="ICO", sizes=[(64, 64)])
-            self.iconbitmap("CFDLab-blogo2.ico")
+            # Load PNG image using PIL
+            icon_image = Image.open("/home/amatos/Desktop/GUI/Airway-ML-CFD-Linux/Ortho_App/CFDLab-blogo2.png")
+            # Convert to PhotoImage
+            photo = ImageTk.PhotoImage(icon_image)
+            # Set as icon
+            self.wm_iconphoto(False, photo)
         except Exception as e:
             print(f"Could not set icon: {e}")
 
@@ -170,14 +173,6 @@ class OrthoCFDApp(ctk.CTk):
         self.unbind("<Return>")
 
     # Validation Methods
-    def validate_username(self):
-        """Validate username before proceeding to Tab 2"""
-        if not self.username_var.get():
-            tk.messagebox.showerror("Error", "Please enter your username before proceeding.")
-            return False
-        self.create_tab2()
-        return True
-
     def validate_tab2(self):
         """Validate Tab 2 input before proceeding"""
         fields_to_validate = [

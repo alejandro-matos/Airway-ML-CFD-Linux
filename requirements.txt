@@ -1,0 +1,7 @@
+customtkinter
+natsort
+nnunetv2
+numpy-stl
+pipdeptree
+vtk
+openpyxl

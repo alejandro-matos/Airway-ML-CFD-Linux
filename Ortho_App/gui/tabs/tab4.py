@@ -6,6 +6,11 @@ import time
 from ..components.navigation import NavigationFrame
 from ..components.progress import ProgressSection
 from ..components.forms import FormSection
+from ..utils.segmentation import AirwayProcessor
+from pathlib import Path
+import threading
+
+
 
 class Tab4Manager:
     def __init__(self, app):
@@ -196,7 +201,7 @@ class Tab4Manager:
             message += "This will:\n" \
                     "1. Perform airway segmentation\n" \
                     "2. Generate 3D model\n" \
-                    "3. Calculate airway measurements"
+                    "3. Calculate airway volume"
         
         response = messagebox.askquestion(
             "Confirm Analysis",
@@ -210,48 +215,129 @@ class Tab4Manager:
     def _start_processing(self):
         """Start the processing sequence"""
         try:
-            # Create the output folder if it doesn't exist
+            # Check if DICOM folder is set
+            if not hasattr(self.app, 'selected_dicom_folder'):
+                messagebox.showerror(
+                    "Error",
+                    "No DICOM folder selected. Please return to the patient information page and select a DICOM folder."
+                )
+                return
+
+            # Check if DICOM folder exists
+            if not os.path.exists(self.app.selected_dicom_folder):
+                messagebox.showerror(
+                    "Error",
+                    f"Selected DICOM folder does not exist: {self.app.selected_dicom_folder}"
+                )
+                return
+
+            # Ensure output folder exists
             os.makedirs(self.app.full_folder_path, exist_ok=True)
             
             self.processing_active = True
             self.process_button.configure(state="disabled")
             
-            # Define processing steps based on analysis type
-            if self.analysis_option.get() == "Airflow Simulation (includes segmentation)":
-                steps = [
-                    ("Segmenting airway...", 2),
-                    ("Generating mesh...", 2),
-                    ("Running CFD simulation...", 3),
-                    ("Analyzing results...", 1)
-                ]
-            else:
-                steps = [
-                    ("Segmenting airway...", 2),
-                    ("Finalizing results...", 1)
-                ]
-
-            self._process_steps(steps)
-
+            def progress_callback(message, percentage, output_line=None):
+                """Update progress bar and message"""
+                # Use after() to ensure thread safety when updating GUI
+                self.app.after(0, lambda: self.progress_section.update_progress(
+                    percentage,
+                    message=message,
+                    output_line=output_line
+                ))
+            
+            # Initialize processor
+            processor = AirwayProcessor(
+                input_folder=self.app.selected_dicom_folder,
+                output_folder=self.app.full_folder_path,
+                callback=progress_callback
+            )
+            
+            # Set up cancel callback
+            def cancel_processing():
+                if processor.cancel_processing():
+                    self.app.after(0, lambda: self.progress_section.update_progress(
+                        0,
+                        message="Processing cancelled",
+                        output_line="Operation cancelled by user"
+                    ))
+                    self.processing_active = False
+                    self.process_button.configure(state="normal")
+                    
+            self.progress_section.set_cancel_callback(cancel_processing)
+            
+            def process_thread():
+                try:
+                    # Clear previous output
+                    self.app.after(0, self.progress_section.clear_output)
+                    
+                    # Start with indeterminate mode during initialization
+                    self.app.after(0, lambda: self.progress_section.start(
+                        "Initializing processing...",
+                        indeterminate=True
+                    ))
+                    
+                    # Run the processing
+                    results = processor.process()
+                    
+                    # Schedule completion handling in main thread
+                    self.app.after(0, lambda: self._handle_processing_completion(True, results))
+                    
+                except Exception as exc:
+                    # Store the exception message for the lambda
+                    error_message = str(exc)
+                    self.app.after(0, lambda: self._handle_processing_completion(False, error_message))
+                
+                finally:
+                    # Reset cancel callback
+                    self.app.after(0, lambda: self.progress_section.set_cancel_callback(None))
+            
+            # Start processing thread
+            thread = threading.Thread(target=process_thread)
+            thread.daemon = True  # Thread will be terminated when main program exits
+            thread.start()
+            
         except Exception as e:
             self.processing_active = False
             self.process_button.configure(state="normal")
-            messagebox.showerror("Error", f"Failed to create output folder:\n{str(e)}")
+            messagebox.showerror("Error", f"Failed to start processing:\n{str(e)}")
 
-    def _process_steps(self, steps):
-        """Process multiple steps sequentially"""
-        def run_step(step_index):
-            if step_index < len(steps):
-                message, duration = steps[step_index]
-                self.progress_section.start(message)
-                # Schedule next step
-                self.app.after(
-                    duration * 1000,  # Convert to milliseconds
-                    lambda: run_step(step_index + 1)
-                )
-            else:
-                self._complete_processing()
-
-        run_step(0)
+    def _handle_processing_completion(self, success, results):
+        """Handle completion of processing"""
+        self.processing_active = False
+        self.process_button.configure(state="normal")
+        
+        if success:
+            self.progress_section.stop("Processing Complete!")
+            
+            # Show success message with results
+            message = (
+                f"Processing completed successfully!\n\n"
+                f"Airway Volume: {results['volume']:.2f} mm³\n\n"
+                f"Files created:\n"
+                f"- NIfTI: {Path(results['nifti_path']).name}\n"
+                f"- Prediction: {Path(results['prediction_path']).name}\n"
+                f"- STL: {Path(results['stl_path']).name}"
+            )
+            
+            messagebox.showinfo("Success", message)
+            
+            # Show results section
+            self.results_frame.pack(fill="x", pady=10)
+            
+            # If airflow simulation was selected, proceed with CFD
+            if self.analysis_option.get() == "Airflow Simulation (includes segmentation)":
+                if messagebox.askyesno(
+                    "Continue to CFD",
+                    "Would you like to proceed with CFD analysis?"
+                ):
+                    self._start_cfd_simulation(results['stl_path'])
+        else:
+            # self.progress_section.stop("Processing Failed!")
+            messagebox.showerror(
+                "Error",
+                f"Processing failed:\n{results}"  # results contains error message in this case
+            )
 
     def _complete_processing(self):
         """Handle processing completion"""

@@ -5,11 +5,14 @@ from PIL import Image
 from customtkinter import CTkImage
 import os
 import tkinter.messagebox as messagebox
+from gui.utils.app_logger import AppLogger
 
 class Tab1Manager:
     def __init__(self, app):
         """Initialize Tab1Manager with a reference to the main app"""
         self.app = app
+        self.username_var = app.username_var  # Use the centralized variable
+        self.logger = AppLogger()  # Use the shared logger
         
     def create_tab(self):
         """Create and set up the home page"""
@@ -20,7 +23,7 @@ class Tab1Manager:
         self._create_next_button()
         
         # Set focus to username entry and bind enter key
-        self.app.bind_enter_key(self.app.validate_username)
+        self.app.bind_enter_key(self.validate_username)
         self.username_entry.focus()
 
     def _create_logo_section(self):
@@ -96,7 +99,7 @@ class Tab1Manager:
         # Create username entry
         self.username_entry = ctk.CTkEntry(
             username_frame,
-            textvariable=self.app.username_var,
+            textvariable=self.username_var,  # Bind the centralized username_var
             width=300,
             fg_color="white",
             text_color="black"
@@ -108,17 +111,25 @@ class Tab1Manager:
         next_button = ctk.CTkButton(
             self.app.main_frame,
             text="Next",
-            command=self.app.validate_username,
+            command=self.validate_username,
             width=140,
             height=40,
             font=("Times_New_Roman", 20)
         )
         next_button.pack(pady=(10, 20))
 
-    def handle_enter_key(self, event=None):
-        """Handle Enter key press"""
-        self.app.validate_username()
+    def validate_username(self):
+        username = self.app.username_var.get().strip()  # Use the centralized variable
+        if not username:
+            tk.messagebox.showerror("Error", "Please enter a username")
+            return False
 
-    def destroy(self):
-        """Clean up resources when tab is destroyed"""
-        self.app.unbind_enter_key()
+        # Log the username using AppLogger
+        self.logger.log_info(f"User logged in: {username}")
+
+        # Store the username in the app state for future use (optional)
+        self.app.stored_username = username
+
+        # Switch to the next tab
+        self.app.create_tab2()  # Navigate to Tab 2
+        return True

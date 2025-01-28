@@ -23,9 +23,9 @@ def setup_environment():
         # Verify required external applications
         # Note: Implement actual checks based on your system
         required_apps = {
-            'Blender': r'C:\Users\aleja\Desktop\Geometries\Airway-ML-CFD-Linux\Ortho_App\config\TemporaryBlenderOpenFoamParaview.bmp',
-            'OpenFOAM': r'C:\Users\aleja\Desktop\Geometries\Airway-ML-CFD-Linux\Ortho_App\config\TemporaryBlenderOpenFoamParaview.bmp',
-            'ParaView': r'C:\Users\aleja\Desktop\Geometries\Airway-ML-CFD-Linux\Ortho_App\config\TemporaryBlenderOpenFoamParaview.bmp'
+            'Blender': '/usr/bin/blender',
+            'OpenFOAM': '/usr/lib/openfoam/openfoam2306',
+            'ParaView': '/usr/bin/paraview'
         }
         
         missing_apps = []

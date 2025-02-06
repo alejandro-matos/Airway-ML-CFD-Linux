@@ -2,36 +2,62 @@
 
 A comprehensive graphical user interface designed for medical professionals to perform automated airway segmentation and computational fluid dynamics (CFD) simulations. This tool streamlines the workflow from image processing to final report generation.
 
+<!-- TODO: Add a project logo or header image here -->
+![Project Logo](path/to/logo.png)
+
 ## Features
 
 - **User-Specific Data Management**: Secure data organization with individual user folders
 - **Automated Image Processing**: Streamlined extraction of relevant medical image data using nnUNet
-- **Advanced Segmentation Options**: CFD simulation integration
+- **Advanced Segmentation Options**: Integrated CFD simulation features
 - **Automated Reporting**: Generation of clear, concise analysis reports
 
-If you use AppNameTk for your work, please cite <!--our paper and -->nnU-Net:
+<!-- TODO: Add video demo link or embed code -->
+[![Watch the demo](path/to/demo_thumbnail.png)](https://link.to/demo)
 
-<!-- Matos Camarillo A, Capenakas-Gianoni S, Punithakumar K, Lagravere-Vich M. AirwaySegmentator: A deep learning-based method for Nasopharyngeal airway segmentation. Published online Month day, 2024:2024.xx.xx.xxxxxxxx. doi:10.1101/2024.xx.xx.xxxxxxxx-->
-> Add Uday's and Dr. Lange's work? tk
+If you use {AppName} for your work, please cite:
+- **nnU-Net**:  
+  Isensee F, Jaeger PF, Kohl SAA, Petersen J, Maier-Hein KH. nnU-Net: a self-configuring method for deep learning-based biomedical image segmentation. Nat Methods. 2021;18(2):203-211. doi:10.1038/s41592-020-01008-z
 
-> Isensee F, Jaeger PF, Kohl SAA, Petersen J, Maier-Hein KH. nnU-Net: a self-configuring method for deep learning-based biomedical image segmentation. Nat Methods. 2021;18(2):203-211. doi:10.1038/s41592-020-01008-z
-
-tk add some pictures here
+- **Additional Citation**:  
+  <!-- TODO: Add Uday and Dr. Lange's work citation if applicable -->
 
 ## System Requirements
 
 ### Operating System
 - OpenSUSE 15.6 or later
-- Linux kernel version [specify minimum version]
+- Linux kernel version [INSERT minimum version]
 
 ### Required Software
 - Python 3.11
-- Blender [version]
-- OpenFOAM [version]
-- ParaView [version]
-- nnUNetv2
+- Blender [INSERT version]
+- OpenFOAM [INSERT version]
+- ParaView [INSERT version]
+- nnUNetv2 [INSERT version if applicable]
 
 ### Hardware Requirements
+<!-- TODO: Specify hardware recommendations -->
+- Recommended RAM: [INSERT recommended RAM]
+- Processor: [INSERT processor details]
+- GPU: [INSERT GPU requirements]
+
+## Installation
+
+```bash
+# Install system dependencies (if required, specify additional packages)
+sudo zypper install -y [INSERT system packages]
+
+# Install Python dependencies
+pip install -r requirements.txt
+
+# Additional software setup (provide links or commands for installation)
+# Blender: [INSERT installation instructions]
+# OpenFOAM: [INSERT installation instructions]
+# ParaView: [INSERT installation instructions]
+# nnUNet: [INSERT installation instructions]
+
+
+### Minimum Hardware Requirements
 [To be determined based on processing needs]
 - Recommended RAM: 
 - Processor: 
@@ -46,16 +72,9 @@ sudo zypper install requirements.txt
 # Python dependencies
 pip install -r requirements.txt
 
-# Additional software setup
-[Instructions for Blender, OpenFOAM, ParaView, and nnUNet installation]
-```
-
 ## Quick Start Guide
 
-1. Launch the application:
-```bash
-python main.py
-```
+1. Launch the application by clicking on the icon: [Insert icon]
 
 2. Enter your username when prompted
 3. Select and import medical images
@@ -67,7 +86,8 @@ python main.py
 ## Project Structure
 
 ```
-project/
+Ortho_App/
+├── main.py
 ├── src/
 │   ├── main.py
 │   ├── segmentation/
@@ -76,7 +96,10 @@ project/
 ├── user_data/
 ├── models/
 └── config/
+├── logs/
 ```
+
+Logs are generated to help troubleshoot issues. These logs capture user activity, and system status. These logs can be found in the `logs/` directory and are useful for debugging potential issues.
 
 ## Data Management
 

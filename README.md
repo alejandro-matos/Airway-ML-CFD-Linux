@@ -7,10 +7,10 @@ A comprehensive graphical user interface designed for medical professionals to p
 
 ## Features
 
-- **User-Specific Data Management**: Secure data organization with individual user folders
 - **Automated Image Processing**: Streamlined extraction of relevant medical image data using nnUNet
 - **Advanced Segmentation Options**: Integrated CFD simulation features
 - **Automated Reporting**: Generation of clear, concise analysis reports
+- **User-Specific Data Management**: Secure data organization with individual user folders
 
 If you use {AppName} for your work, please cite:
 - **Research group work**:  

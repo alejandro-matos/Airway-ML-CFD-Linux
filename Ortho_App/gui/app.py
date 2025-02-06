@@ -121,24 +121,26 @@ class OrthoCFDApp(ctk.CTk):
             widget.destroy()
 
     def clear_all_data(self):
-        """Reset all application data"""
-        self.patient_name.set("")
-        self.dob.set("")
-        self.scandate.set("")
-        self.username_var.set("")
-        self.patient_age_var.set("0")
-        self.patient_doctor_var.set("")
-        self.folder_name_var.set("")
+        """Reset all application data and reinitialize StringVars"""
+        self.patient_name = tk.StringVar()
+        self.dob = tk.StringVar()
+        self.scandate = tk.StringVar()
+        self.username_var = tk.StringVar()  # Recreate username_var
+        self.patient_age_var = tk.StringVar(value="0")
+        self.patient_doctor_var = tk.StringVar()
+        self.folder_name_var = tk.StringVar()
         self.full_folder_path = None
         self.selected_dicom_folder = None
         self.analysis_option.set("Select Analysis Type")
         self.going_home = False
 
+
     # Tab Creation Methods
     def create_tab1(self):
         """Create Tab 1 (Home Page)"""
-        self.clear_main_frame()
-        self.tab1_manager.create_tab()
+        self.clear_main_frame()  # Clear the previous frame
+        self.tab1_manager.create_tab()  # Recreate Tab 1 widgets
+
 
     def create_tab2(self):
         """Create Tab 2 (Patient Information)"""
@@ -155,12 +157,13 @@ class OrthoCFDApp(ctk.CTk):
         self.clear_main_frame()
         self.tab4_manager.create_tab()
 
-    # Navigation Methods
+    # =========== Navigation Methods ==========
     def go_home(self):
         """Return to home page and reset application state"""
         self.going_home = True
-        self.clear_all_data()
-        self.create_tab1()
+        self.clear_all_data()  # Reset all application data, including username_var
+        self.clear_main_frame()  # Clear the GUI frame
+        self.create_tab1()  # Recreate Tab 1
 
     # Event Binding Methods
     def bind_enter_key(self, method):

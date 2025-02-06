@@ -4,6 +4,7 @@ import customtkinter as ctk
 from PIL import Image
 from customtkinter import CTkImage
 import os
+import tkinter as tk
 import tkinter.messagebox as messagebox
 from gui.utils.app_logger import AppLogger
 
@@ -74,7 +75,7 @@ class Tab1Manager:
             justify="center"
         )
         description_label.pack(pady=20)
-
+    
     def _create_username_section(self):
         """Create the username input section"""
         username_frame = ctk.CTkFrame(
@@ -96,10 +97,10 @@ class Tab1Manager:
         )
         username_label.grid(row=0, column=0, padx=10, pady=10, sticky="e")
 
-        # Create username entry
+        # Recreate username entry and bind it to username_var
         self.username_entry = ctk.CTkEntry(
             username_frame,
-            textvariable=self.username_var,  # Bind the centralized username_var
+            textvariable=self.app.username_var,  # Rebind to the reinitialized variable
             width=300,
             fg_color="white",
             text_color="black"

@@ -3,3 +3,8 @@ __pycache__/
 logs/
 nnUNet/
 SamplePatient/
+Ortho_App/New/
+Ortho_App/aad/
+Ortho_App/blender.crash.txt
+Ortho_App/gui_data.xlsx
+Ortho_App/P1T1.stl

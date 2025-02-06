@@ -7,6 +7,8 @@ import nibabel as nib
 import numpy as np
 import vtk
 from pathlib import Path
+import re
+from gui.utils.app_logger import AppLogger
 
 class AirwayProcessor:
     def __init__(self, input_folder, output_folder, callback=None):
@@ -22,6 +24,7 @@ class AirwayProcessor:
         self.output_folder = Path(output_folder)
         self.callback = callback
         self.current_subprocess = None
+        self.logger = AppLogger() 
         
         # Create necessary subfolders
         self.nifti_folder = self.output_folder / "nifti"
@@ -36,66 +39,16 @@ class AirwayProcessor:
         if self.callback:
             self.callback(message, percentage, output_line)
 
-    def _stream_subprocess_output(self, process, stage_name, base_progress):
-        """Stream subprocess output and update progress"""
-        while True:
-            if process.poll() is not None:
-                break
-                
-            output_line = process.stdout.readline().strip()
-            if output_line:
-                # Extract progress from nnUNet output if possible
-                if "processing case" in output_line.lower():
-                    try:
-                        case_num = int(output_line.split()[2])
-                        total_cases = int(output_line.split()[4])
-                        progress = base_progress + (case_num / total_cases) * 20
-                        self.update_progress(
-                            f"{stage_name}: Processing case {case_num}/{total_cases}",
-                            progress,
-                            output_line
-                        )
-                    except (IndexError, ValueError):
-                        self.update_progress(f"{stage_name}: {output_line}", base_progress, output_line)
-                else:
-                    self.update_progress(f"{stage_name}: {output_line}", base_progress, output_line)
-
-        # Check for any remaining output
-        remaining_output = process.stdout.read()
-        if remaining_output:
-            for line in remaining_output.splitlines():
-                if line.strip():
-                    self.update_progress(f"{stage_name}: {line}", base_progress, line)
-
     # def _stream_subprocess_output(self, process, stage_name, base_progress):
     #     """Stream subprocess output and update progress"""
-    #     import re
-
-    #     # Regular expression to match percentage at start of line
-    #     percentage_pattern = re.compile(r'^\d+%')
-        
     #     while True:
     #         if process.poll() is not None:
     #             break
                 
     #         output_line = process.stdout.readline().strip()
     #         if output_line:
-    #             # Only show lines that start with a percentage
-    #             if percentage_pattern.match(output_line):
-    #                 try:
-    #                     # Extract percentage value
-    #                     percentage = int(output_line.split('%')[0])
-    #                     # Scale the percentage to fit within the stage's progress range
-    #                     progress = base_progress + (percentage / 100) * 20
-                        
-    #                     self.update_progress(
-    #                         f"{stage_name}: {output_line}",
-    #                         progress,
-    #                         output_line
-    #                     )
-    #                 except (IndexError, ValueError):
-    #                     pass  # Skip malformed percentage lines
-    #             elif "processing case" in output_line.lower():
+    #             # Extract progress from nnUNet output if possible
+    #             if "processing case" in output_line.lower():
     #                 try:
     #                     case_num = int(output_line.split()[2])
     #                     total_cases = int(output_line.split()[4])
@@ -106,14 +59,66 @@ class AirwayProcessor:
     #                         output_line
     #                     )
     #                 except (IndexError, ValueError):
-    #                     pass
+    #                     self.update_progress(f"{stage_name}: {output_line}", base_progress, output_line)
+    #             else:
+    #                 self.update_progress(f"{stage_name}: {output_line}", base_progress, output_line)
 
     #     # Check for any remaining output
     #     remaining_output = process.stdout.read()
     #     if remaining_output:
     #         for line in remaining_output.splitlines():
-    #             if line.strip() and percentage_pattern.match(line):
+    #             if line.strip():
     #                 self.update_progress(f"{stage_name}: {line}", base_progress, line)
+
+    def _stream_subprocess_output(self, process, stage_name, base_progress):
+        """Stream subprocess output and update progress"""
+        # Regular expression to match percentage at start of line
+        percentage_pattern = re.compile(r'^\d+%')
+        
+        while True:
+            if process.poll() is not None:
+                break
+                
+            output_line = process.stdout.readline().strip()
+            if output_line:
+                # Get raw output line
+                self.logger.log_info(f"{stage_name}: {output_line}")
+                # Only show lines that start with a percentage
+                if percentage_pattern.match(output_line):
+                    try:
+                        # Extract percentage value
+                        percentage = int(output_line.split('%')[0])
+                        # Scale the percentage to fit within the stage's progress range
+                        progress = base_progress + (percentage / 100) * 20
+                        
+                        self.update_progress(
+                            f"{stage_name}: {output_line}",
+                            progress,
+                            output_line
+                        )
+                    except (IndexError, ValueError):
+                        pass  # Skip malformed percentage lines
+                elif "processing case" in output_line.lower():
+                    try:
+                        case_num = int(output_line.split()[2])
+                        total_cases = int(output_line.split()[4])
+                        progress = base_progress + (case_num / total_cases) * 20
+                        self.update_progress(
+                            f"{stage_name}: Processing case {case_num}/{total_cases}",
+                            progress,
+                            output_line
+                        )
+                    except (IndexError, ValueError):
+                        pass
+
+        # Check for any remaining output
+        remaining_output = process.stdout.read()
+        if remaining_output:
+            for line in remaining_output.splitlines():
+                if line.strip(): 
+                    self.logger.log_info(f"{stage_name}: {line}")
+                    if percentage_pattern.match(line):
+                        self.update_progress(f"{stage_name}: {line}", base_progress, line)
 
     def run_nnunet_prediction(self):
         """Run nnUNet prediction on the NIfTI file with real-time output"""
@@ -260,57 +265,104 @@ class AirwayProcessor:
             logging.error(f"Error in volume calculation: {e}")
             raise
 
-    def create_stl(self, nifti_path):
-        """Convert segmentation to STL format"""
+    def create_stl(self, nifti_path, threshold_value=1, decimate=True, decimate_target_reduction=0.5):
+        """Convert segmentation to STL format with advanced smoothing and transformations"""
         try:
             self.update_progress("Creating STL model...", 85)
+
+            # Extract filename without extension
+            nifti_filename = Path(nifti_path).stem  # Get filename without extension
+            if nifti_filename.endswith("_pred"):
+                nifti_filename = nifti_filename.replace("_pred", "_geo")  # Remove _pred suffix if exists
             
-            stl_path = self.stl_folder / "airway.stl"
+            stl_path = self.stl_folder / f"{nifti_filename}.stl"  # Set STL filename
             
-            # Set up VTK pipeline
+            # Load NIfTI file
             reader = vtk.vtkNIFTIImageReader()
             reader.SetFileName(str(nifti_path))
             reader.Update()
             
-            # Add padding
-            pad = vtk.vtkImageConstantPad()
-            pad.SetInputConnection(reader.GetOutputPort())
-            extent = reader.GetDataExtent()
-            pad.SetOutputWholeExtent(
-                extent[0] - 1, extent[1] + 1,
-                extent[2] - 1, extent[3] + 1,
-                extent[4] - 1, extent[5] + 1
-            )
-            pad.SetConstant(0)
-            pad.Update()
+            # Apply vtkDiscreteFlyingEdges3D
+            discrete_flying_edges = vtk.vtkDiscreteFlyingEdges3D()
+            discrete_flying_edges.SetInputConnection(reader.GetOutputPort())
+            discrete_flying_edges.SetValue(0, threshold_value)
+            discrete_flying_edges.Update()
             
-            # Create surface
-            surface = vtk.vtkDiscreteFlyingEdges3D()
-            surface.SetInputConnection(pad.GetOutputPort())
-            surface.SetValue(0, 1)  # threshold value for segmentation
-            
-            # Smooth and decimate
-            smoother = vtk.vtkSmoothPolyDataFilter()
-            smoother.SetInputConnection(surface.GetOutputPort())
-            smoother.SetNumberOfIterations(5)
-            smoother.SetRelaxationFactor(0.1)
-            
-            decimator = vtk.vtkDecimatePro()
-            decimator.SetInputConnection(smoother.GetOutputPort())
-            decimator.SetTargetReduction(0.5)
-            decimator.PreserveTopologyOn()
-            
-            # Save STL
-            writer = vtk.vtkSTLWriter()
-            writer.SetInputConnection(decimator.GetOutputPort())
-            writer.SetFileName(str(stl_path))
-            writer.SetFileTypeToBinary()
-            writer.Write()
+            output_polydata = discrete_flying_edges.GetOutput()
+
+            # Apply decimation if requested
+            if decimate:
+                decimator = vtk.vtkDecimatePro()
+                decimator.SetInputData(output_polydata)
+                decimator.SetTargetReduction(decimate_target_reduction)
+                decimator.PreserveTopologyOn()
+                decimator.Update()
+                output_polydata = decimator.GetOutput()
+
+            # Apply smoothing
+            # smoothing_filter = vtk.vtkSmoothPolyDataFilter()
+            # smoothing_filter.SetInputData(output_polydata)
+            # smoothing_filter.SetNumberOfIterations(5)
+            # smoothing_filter.SetRelaxationFactor(0.05)
+            # smoothing_filter.FeatureEdgeSmoothingOff()
+            # smoothing_filter.BoundarySmoothingOn()
+            # smoothing_filter.Update()
+            # output_polydata = smoothing_filter.GetOutput()
+            smoothing_filter = vtk.vtkWindowedSincPolyDataFilter()
+            smoothing_filter.SetInputData(output_polydata)
+            smoothing_filter.SetNumberOfIterations(10)
+            smoothing_filter.NonManifoldSmoothingOn()
+            smoothing_filter.NormalizeCoordinatesOn()
+            smoothing_filter.FeatureEdgeSmoothingOff()
+            smoothing_filter.BoundarySmoothingOn()
+            smoothing_filter.Update()
+            output_polydata = smoothing_filter.GetOutput()
+
+
+            # Get QForm matrix
+            qform_matrix = reader.GetQFormMatrix()
+
+            # Create IJK to RAS transformation
+            ijk_to_ras = vtk.vtkMatrix4x4()
+            ijk_to_ras.DeepCopy(qform_matrix)
+
+            # Adjust for VTK's coordinate system
+            flip_xy = vtk.vtkMatrix4x4()
+            flip_xy.SetElement(0, 0, -1)
+            flip_xy.SetElement(1, 1, -1)
+
+            vtk.vtkMatrix4x4.Multiply4x4(flip_xy, ijk_to_ras, ijk_to_ras)
+
+            # Create transformation matrix
+            transform = vtk.vtkTransform()
+            transform.SetMatrix(ijk_to_ras)
+
+            # Apply transformation
+            transform_filter = vtk.vtkTransformPolyDataFilter()
+            transform_filter.SetInputData(output_polydata)
+            transform_filter.SetTransform(transform)
+            transform_filter.Update()
+            transformed_polydata = transform_filter.GetOutput()
+
+            # Compute normals
+            normals = vtk.vtkPolyDataNormals()
+            normals.SetInputData(transformed_polydata)
+            normals.SetFeatureAngle(60.0)
+            normals.ConsistencyOn()
+            normals.SplittingOff()
+            normals.Update()
+
+            # Write STL file
+            stl_writer = vtk.vtkSTLWriter()
+            stl_writer.SetFileTypeToBinary()
+            stl_writer.SetFileName(str(stl_path))
+            stl_writer.SetInputData(normals.GetOutput())
+            stl_writer.Write()
             
             return str(stl_path)
             
         except Exception as e:
-            logging.error(f"Error in STL creation: {e}")
+            self.logger.log_error(f"Error in STL creation: {e}")
             raise
 
     def process(self):

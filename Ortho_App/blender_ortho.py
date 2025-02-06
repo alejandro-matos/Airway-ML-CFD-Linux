@@ -45,7 +45,7 @@ zValues = []
 # Alignment in y, z axis
 # In progress, see align_script_inprogress for details
 
-# bpy.context.object.rotation_euler = (0,0,-0.05) # -0.01-p4t1,0.02-p4t2, -0.065-p5t1, 0.05-p5_val, #0.044 ?
+bpy.context.object.rotation_euler = (0,0,-0.05) # -0.01-p4t1,0.02-p4t2, -0.065-p5t1, 0.05-p5_val, #0.044 ?
 
 # Removing floating objects/artifacts
 

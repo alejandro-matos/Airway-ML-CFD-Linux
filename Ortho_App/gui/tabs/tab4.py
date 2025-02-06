@@ -9,7 +9,8 @@ from ..components.forms import FormSection
 from ..utils.segmentation import AirwayProcessor
 from pathlib import Path
 import threading
-
+import sys
+from gui.utils.app_logger import AppLogger
 
 
 class Tab4Manager:
@@ -17,6 +18,14 @@ class Tab4Manager:
         """Initialize Tab4Manager with a reference to the main app"""
         self.app = app
         self.processing_active = False
+        self.logger = AppLogger()  # Initialize logger
+
+        # # Redirect standard output (stdout) and errors (stderr) to AppLogger
+        # sys.stdout = self.LoggerWriter(self.logger.log_info)
+        # sys.stderr = self.LoggerWriter(self.logger.log_error)
+
+        # # Capture Python warnings and log them
+        # warnings.showwarning = self._log_warning
         
     def create_tab(self):
         """Create and set up the analysis and processing page"""
@@ -57,12 +66,69 @@ class Tab4Manager:
             font=("Arial", 13),
             anchor="center"
         ).grid(row=0, column=1, padx=10, pady=5)
+    
+    def _create_navigation(self):
+        """Create navigation buttons with descriptive labels"""
+        self.nav_frame = ctk.CTkFrame(self.app.main_frame, fg_color="transparent")
+        self.nav_frame.pack(fill="x", side="bottom", pady=5)  # Adjust bottom padding
+
+        # Back button and label
+        back_frame = ctk.CTkFrame(self.nav_frame, fg_color="transparent")
+        back_frame.pack(side="left", padx=15)  # Adjust padding for better positioning
+
+        ctk.CTkButton(
+            back_frame,
+            text="Back",
+            command=self.app.create_tab3,  # Navigate back to Tab3
+            width=100,
+            font=("Times_New_Roman", 16)
+        ).pack()
+
+        ctk.CTkLabel(
+            back_frame,
+            text="Review and Confirm",
+            font=("Arial", 12),
+            text_color="gray"
+        ).pack()
+
+        # Next button and label (Initially hidden)
+        self.next_frame = ctk.CTkFrame(self.nav_frame, fg_color="transparent")
+        self.next_frame.pack(side="right", padx=15)
+        self.next_frame.pack_forget()  # Hide the Next button initially
+
+    
+    def _show_next_button(self):
+        """Show the Next button and label"""
+        self.next_frame.pack(side="right", padx=20)
+
+        ctk.CTkButton(
+            self.next_frame,
+            text="Next",
+            command=self._validate_and_proceed,  # Proceed to the next step
+            width=100,
+            font=("Times_New_Roman", 16)
+        ).pack()
+
+        ctk.CTkLabel(
+            self.next_frame,
+            text="Further Analysis",
+            font=("Arial", 12),
+            text_color="gray"
+        ).pack()
+
+    def _validate_and_proceed(self):
+        """Validate current state and proceed to the next tab"""
+        # Add validation logic if necessary
+        messagebox.showinfo(
+            "Next Tab",
+            "This is a placeholder for the next tab. Implementation is pending."
+        )
 
     def _create_main_content(self):
         """Create the main content area with analysis options and processing sections"""
         # Main content frame - this should be transparent too
         content_frame = ctk.CTkFrame(self.app.main_frame, corner_radius=10, fg_color="transparent")
-        content_frame.pack(fill="both", expand=True, padx=20, pady=20)
+        content_frame.pack(fill="both", expand=True, padx=20, pady=(5, 0))  # Reduce bottom padding
 
         # Analysis options section
         self._create_analysis_section(content_frame)
@@ -88,21 +154,21 @@ class Tab4Manager:
                 "Airflow Simulation (includes segmentation)"
             ],
             command=self._update_processing_details,
-            width=300,
-            height=40,
-            font=("Arial", 14)
+            width=280,
+            height=30,
+            font=("Arial", 12)
         )
-        analysis_dropdown.pack(pady=(10, 15))
+        analysis_dropdown.pack(pady=(5, 10))
 
         # Processing details label
         self.processing_details_label = ctk.CTkLabel(
             analysis_section.content,
             text="",
             font=("Arial", 12),
-            wraplength=300,
+            wraplength=280,
             justify="center"
         )
-        self.processing_details_label.pack(pady=(0, 20))
+        self.processing_details_label.pack(pady=(0, 10))
 
     def _create_processing_section(self, parent):
         """Create the processing section with progress bar"""
@@ -255,13 +321,13 @@ class Tab4Manager:
             
             # Set up cancel callback
             def cancel_processing():
+                """Cancel the processing and stop the progress bar"""
                 if processor.cancel_processing():
-                    self.app.after(0, lambda: self.progress_section.update_progress(
-                        0,
-                        message="Processing cancelled",
-                        output_line="Operation cancelled by user"
-                    ))
+                    # Ensure the progress bar animation is stopped
+                    self.app.after(0, lambda: self.progress_section.stop("Processing Cancelled"))
+                    # Reset the processing flag
                     self.processing_active = False
+                    # Enable the Start button again
                     self.process_button.configure(state="normal")
                     
             self.progress_section.set_cancel_callback(cancel_processing)
@@ -306,10 +372,10 @@ class Tab4Manager:
         """Handle completion of processing"""
         self.processing_active = False
         self.process_button.configure(state="normal")
-        
+
         if success:
             self.progress_section.stop("Processing Complete!")
-            
+
             # Show success message with results
             message = (
                 f"Processing completed successfully!\n\n"
@@ -319,12 +385,14 @@ class Tab4Manager:
                 f"- Prediction: {Path(results['prediction_path']).name}\n"
                 f"- STL: {Path(results['stl_path']).name}"
             )
-            
             messagebox.showinfo("Success", message)
-            
+
             # Show results section
             self.results_frame.pack(fill="x", pady=10)
-            
+
+            # Show the Next button
+            self._show_next_button()
+
             # If airflow simulation was selected, proceed with CFD
             if self.analysis_option.get() == "Airflow Simulation (includes segmentation)":
                 if messagebox.askyesno(
@@ -333,29 +401,10 @@ class Tab4Manager:
                 ):
                     self._start_cfd_simulation(results['stl_path'])
         else:
-            # self.progress_section.stop("Processing Failed!")
             messagebox.showerror(
                 "Error",
-                f"Processing failed:\n{results}"  # results contains error message in this case
+                f"Processing failed:\n{results}"  # Results contain error message in this case
             )
-
-    def _complete_processing(self):
-        """Handle processing completion"""
-        self.processing_active = False
-        self.process_button.configure(state="normal")
-        self.progress_section.stop("Processing Complete!")
-
-        # Show completion message
-        analysis_type = self.analysis_option.get()
-        success_msg = (
-            "Airflow simulation and analysis completed successfully!"
-            if "Simulation" in analysis_type else
-            "Airway segmentation completed successfully!"
-        )
-        messagebox.showinfo("Success", success_msg)
-
-        # Show results section
-        self.results_frame.pack(fill="x", pady=10)
 
     def _save_results(self):
         """Handle saving results"""
@@ -368,16 +417,3 @@ class Tab4Manager:
     def _visualize_data(self):
         """Handle data visualization"""
         messagebox.showinfo("Visualize Data", "Opening visualization tool...")
-
-    def _create_navigation(self):
-        """Create the navigation buttons"""
-        NavigationFrame(
-            self.app.main_frame,
-            previous_label="Review and Confirm",
-            next_label="Future Implementation",
-            back_command=self.app.create_tab3,
-            next_command=lambda: messagebox.showinfo(
-                "Info",
-                "Further tabs not yet implemented."
-            )
-        ).pack(fill="x", side="bottom", pady=20)

@@ -88,15 +88,18 @@ class ProgressSection(ctk.CTkFrame):
     def stop(self, message="Complete"):
         """Stop the progress bar and update message"""
         def _stop():
-            if self.progress_bar['mode'] == 'indeterminate':
-                self.progress_bar.stop()
-            else:
-                self.progress_bar['value'] = 100
-                
+            # Explicitly stop the progress bar animation
+            self.progress_bar.stop()
+            # Reset the value to 0 for consistency
+            self.progress_bar['value'] = 0
+
+            # Update the progress label
             self.progress_label.configure(text=message)
+            # Disable the cancel button
             self.cancel_button.configure(state="disabled")
         
         self._safe_update(_stop)
+
         
     def update_progress(self, value, message=None, output_line=None):
         """Update progress bar value and optionally add output line"""

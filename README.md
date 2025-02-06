@@ -41,23 +41,34 @@ If you use {AppName} for your work, please cite:
 - Processor: [TK processor details]
 - GPU: [TK GPU requirements]
 
-## Installation
-
-### Install system dependencies 
-Below is script to install all the essential software, utilities and tools such as the required softwares listed in the section above.
-
+## Software Installation Scripts
+If starting from a fresh OpenSUSE installation, you can run the following script to set up all necessary software:
 
 <!-- TODO: Review what packages to install -->
-[Still needs to be written]
+[Script still needs to be written]
 ```bash
 bash -c "$(curl -fsSL https://raw.githubusercontent.com/alejandro-matos/OpenSUSE-Setup-Scripts/main/OpenSUSE_Installation.sh)"
 ```
+If you need to manually install the required software, you can do so using the following commands:
 
-### Install Python dependencies
-If not needing to set up a fresh install
+### System Dependencies Installation
+Run the following command to install essential system packages:
+[Review commands]
+```bash
+sudo zypper install -y python311 blender openfoam paraview
+```
+This command will:
+- Install Python 3.11
+- Install Blender 2.82 (adjust package name if needed)
+- Install OpenFOAM 2306
+- Install ParaView 5.12
+
+### Python packages
+Once system dependencies are installed, install the required Python libraries:
 ```bash
 pip install -r requirements.txt
 ```
+
 
 ## {AppName} Quick Start Guide
 

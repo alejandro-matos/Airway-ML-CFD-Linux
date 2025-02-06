@@ -42,40 +42,27 @@ If you use {AppName} for your work, please cite:
 
 ## Installation
 
-# Install system dependencies (if required, specify additional packages)
+### Install system dependencies (if required, specify additional packages)
 ```bash
 sudo zypper install -y [INSERT system packages]
 ```
 
-# Install Python dependencies
+### Install Python dependencies
 ```bash
 pip install -r requirements.txt
 ```
 
-# Additional software setup (provide links or commands for installation)
+### Additional software setup (provide links or commands for installation)
 Blender: [INSERT installation instructions]
 OpenFOAM: [INSERT installation instructions]
 ParaView: [INSERT installation instructions]
 nnUNet: [INSERT installation instructions]
-
 
 ### Minimum Hardware Requirements
 [To be determined based on processing needs]
 - Recommended RAM: 
 - Processor: 
 - GPU: 
-
-## Installation
-
-# System dependencies
-```bash
-sudo zypper install sys_requirements.txt
-```
-
-# Python dependencies
-```bash
-pip install -r requirements.txt
-```
 
 ## Quick Start Guide
 

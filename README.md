@@ -26,35 +26,37 @@ If you use {AppName} for your work, please cite:
 
 ### Operating System
 - OpenSUSE 15.6 or later
-- Linux kernel version [INSERT minimum version]
 
 ### Required Software
 - Python 3.11
-- Blender [INSERT version]
-- OpenFOAM [INSERT version]
-- ParaView [INSERT version]
-- nnUNetv2 [INSERT version if applicable]
+- Blender 2.82
+- OpenFOAM 2306
+- ParaView 5.12
+- nnUNetv2 
 
-### Hardware Requirements
+### Hardware Specifications
 <!-- TODO: Specify hardware recommendations -->
-- Recommended RAM: [INSERT recommended RAM]
-- Processor: [INSERT processor details]
-- GPU: [INSERT GPU requirements]
+- Recommended RAM: [TK recommended RAM]
+- Processor: [TK processor details]
+- GPU: [TK GPU requirements]
 
 ## Installation
 
-```bash
 # Install system dependencies (if required, specify additional packages)
+```bash
 sudo zypper install -y [INSERT system packages]
+```
 
 # Install Python dependencies
+```bash
 pip install -r requirements.txt
+```
 
 # Additional software setup (provide links or commands for installation)
-# Blender: [INSERT installation instructions]
-# OpenFOAM: [INSERT installation instructions]
-# ParaView: [INSERT installation instructions]
-# nnUNet: [INSERT installation instructions]
+Blender: [INSERT installation instructions]
+OpenFOAM: [INSERT installation instructions]
+ParaView: [INSERT installation instructions]
+nnUNet: [INSERT installation instructions]
 
 
 ### Minimum Hardware Requirements
@@ -65,17 +67,19 @@ pip install -r requirements.txt
 
 ## Installation
 
-```bash
 # System dependencies
-sudo zypper install requirements.txt
+```bash
+sudo zypper install sys_requirements.txt
+```
 
 # Python dependencies
+```bash
 pip install -r requirements.txt
+```
 
 ## Quick Start Guide
 
 1. Launch the application by clicking on the icon: [Insert icon]
-
 2. Enter your username when prompted
 3. Select and import medical images
 4. Choose analysis options:

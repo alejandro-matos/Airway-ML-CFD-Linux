@@ -12,15 +12,16 @@ A comprehensive graphical user interface designed for medical professionals to p
 - **Advanced Segmentation Options**: Integrated CFD simulation features
 - **Automated Reporting**: Generation of clear, concise analysis reports
 
-<!-- TODO: Add video demo link or embed code -->
-[![Watch the demo](path/to/demo_thumbnail.png)](https://link.to/demo)
-
 If you use {AppName} for your work, please cite:
+- **Research group work**:  
+  <!-- TODO: Add Uday and Dr. Lange's work citation if applicable -->
+  > Uday and Dr. Lange's work on simulation verification
+  > Silvia's and Alejandro's work
+
 - **nnU-Net**:  
   > Isensee F, Jaeger PF, Kohl SAA, Petersen J, Maier-Hein KH. nnU-Net: a self-configuring method for deep learning-based biomedical image segmentation. Nat Methods. 2021;18(2):203-211. doi:10.1038/s41592-020-01008-z
 
-- **Additional Citation**:  
-  <!-- TODO: Add Uday and Dr. Lange's work citation if applicable -->
+
 
 ## System Requirements
 
@@ -42,29 +43,26 @@ If you use {AppName} for your work, please cite:
 
 ## Installation
 
-### Install system dependencies (if required, specify additional packages)
+### Install system dependencies 
+Below is script to install all the essential software, utilities and tools such as the required softwares listed in the section above.
+
+
+<!-- TODO: Review what packages to install -->
+[Still needs to be written]
 ```bash
-sudo zypper install -y [INSERT system packages]
+bash -c "$(curl -fsSL https://raw.githubusercontent.com/alejandro-matos/OpenSUSE-Setup-Scripts/main/OpenSUSE_Installation.sh)"
 ```
 
 ### Install Python dependencies
+If not needing to set up a fresh install
 ```bash
 pip install -r requirements.txt
 ```
 
-### Additional software setup (provide links or commands for installation)
-Blender: [INSERT installation instructions]
-OpenFOAM: [INSERT installation instructions]
-ParaView: [INSERT installation instructions]
-nnUNet: [INSERT installation instructions]
+## {AppName} Quick Start Guide
 
-### Minimum Hardware Requirements
-[To be determined based on processing needs]
-- Recommended RAM: 
-- Processor: 
-- GPU: 
-
-## Quick Start Guide
+<!-- TODO: Add video demo link or embed code -->
+[![Watch the demo](path/to/demo_thumbnail.png)](https://link.to/demo)
 
 1. Launch the application by clicking on the icon: [Insert icon]
 2. Enter your username when prompted
@@ -124,7 +122,7 @@ This section will list the most commonly encountered issues and how to solve the
 
 ## Acknowledgments
 Authors: A. Matos Camarillo (University of Alberta), U. Tummala (University of Alberta), S. Capenakas-Gianoni (University of Alberta), K. Punithakumar (University of Alberta), C.F. Lange (University of Alberta), M. Lagravere-Vich (University of Alberta)
-Supported by (Add funding sources tk)
+Supported by [Add funding sources tk]
 
 ---
 **Note**: This is a medical tool intended for professional use only. Users should ensure compliance with local medical data handling regulations.

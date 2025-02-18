@@ -12,6 +12,8 @@ from ..components.buttons import CircularButton
 from ..components.forms import FormSection, LabeledEntry
 from ..components.navigation import NavigationFrame
 from ..utils.tooltips import ToolTip
+from gui.utils.app_logger import AppLogger
+from config.settings import UI_SETTINGS
 
 # Constants
 BASE_PATH = Path.home() / "Desktop"
@@ -29,11 +31,16 @@ class Tab2Manager:
         self.app = app
         if not hasattr(self.app, 'folder_name_var'):
             self.app.folder_name_var = tk.StringVar()
+        self.logger = AppLogger()  # Use the shared logge
         
     def create_tab(self):
         """Create and set up the patient information page"""
         self._create_header()
-        self.main_frame = self._create_main_frame()
+        
+        # Make sure main frame expands properly
+        self.main_frame = ctk.CTkFrame(self.app.main_frame)
+        self.main_frame.pack(fill="both", expand=True, padx=UI_SETTINGS["PADDING"]["LARGE"], pady=UI_SETTINGS["PADDING"]["MEDIUM"])
+
         self._create_upload_section()
         self._create_patient_info_section()
         self._create_folder_section()
@@ -42,7 +49,7 @@ class Tab2Manager:
     def _create_header(self):
         """Create the header with home button and step indicator"""
         top_frame = ctk.CTkFrame(self.app.main_frame, fg_color="transparent")
-        top_frame.pack(fill="x", pady=(5, 5))
+        top_frame.pack(fill="x", pady=UI_SETTINGS["PADDING"]["MEDIUM"])
 
         # Home button
         ctk.CTkButton(
@@ -51,61 +58,86 @@ class Tab2Manager:
             command=self.app.go_home,
             width=80,
             height=40,
-            font=("Times_New_Roman", 16)
-        ).pack(side="left", padx=5)
+            font=UI_SETTINGS["FONTS"]["NORMAL"],
+            fg_color=UI_SETTINGS["COLORS"]["NAV_BUTTON"],
+            hover_color=UI_SETTINGS["COLORS"]["NAV_HOVER"]
+        ).pack(side="left", padx=UI_SETTINGS["PADDING"]["MEDIUM"])
 
         # Step indicator
         ctk.CTkLabel(
             top_frame,
             text="Step 1 of 4: Upload Patient Scans & Information",
-            font=("Arial", 15),
+            font=UI_SETTINGS["FONTS"]["HEADER"],
+            text_color=UI_SETTINGS["COLORS"]["TEXT_LIGHT"],
             anchor="center"
         ).pack(side="left", expand=True)
 
     def _create_main_frame(self):
         """Create the main content frame with grid layout"""
         main_frame = ctk.CTkFrame(self.app.main_frame)
-        main_frame.pack(fill="both", expand=True, padx=20, pady=(5, 10))
+        main_frame.pack(fill="both", expand=True, padx=UI_SETTINGS["PADDING"]["MEDIUM"], pady=UI_SETTINGS["PADDING"]["MEDIUM"])
         return main_frame
 
     def _create_upload_section(self):
-        """Create the file upload section"""
+        """Create the file upload section."""
         upload_frame = ctk.CTkFrame(self.main_frame, fg_color="transparent")
-        upload_frame.pack(fill="x", pady=(5, 10))
+        upload_frame.pack(fill="x", pady=UI_SETTINGS["PADDING"]["MEDIUM"])
 
         ctk.CTkLabel(
             upload_frame,
             text="Upload Patient Scans",
-            font=("Arial", 15, "bold")
-        ).pack(pady=(5, 0))
+            font=UI_SETTINGS["FONTS"]["HEADER"],
+            text_color=UI_SETTINGS["COLORS"]["TEXT_LIGHT"]
+        ).pack(pady=UI_SETTINGS["PADDING"]["SMALL"])
 
         self.folder_status_label = ctk.CTkLabel(
             upload_frame,
-            text="",
-            font=("Arial", 12)
+            text="No folder selected",
+            font=UI_SETTINGS["FONTS"]["NORMAL"],
+            text_color=UI_SETTINGS["COLORS"]["TEXT_LIGHT"]
         )
-        self.folder_status_label.pack(pady=(5, 0))
+        self.folder_status_label.pack(pady=UI_SETTINGS["PADDING"]["SMALL"])
 
-        ctk.CTkButton(
-            upload_frame,
+        # Folder selection button with adjacent info button
+        selection_frame = ctk.CTkFrame(upload_frame, fg_color="transparent")
+        selection_frame.pack(pady=(5, 10))
+        
+        select_button = ctk.CTkButton(
+            selection_frame,
             text="Select Patient Folder",
             command=self._handle_folder_selection,
-            font=("Times_New_Roman", 14)
-        ).pack(pady=(5, 10))
+            font=UI_SETTINGS["FONTS"]["BUTTON_TEXT"],
+            fg_color=UI_SETTINGS["COLORS"]["REG_BUTTON"],
+            hover_color=UI_SETTINGS["COLORS"]["REG_HOVER"],
+            width=180,
+            height=50,
+        )
+        select_button.pack(side="left")
+        
+        # Info button with tooltip explanation
+        info_button = self._create_info_button(
+            selection_frame,
+            "Navigate into the folder containing the medical images in DICOM format and then click OK."
+        )
+        info_button.pack(side="left", padx=5)
 
     def _create_patient_info_section(self):
-        """Create the patient information form section with grid layout"""
+        """Create the patient information form section with centered alignment"""
         info_frame = ctk.CTkFrame(self.main_frame, fg_color="transparent")
-        info_frame.pack(fill="x", pady=(5, 10))
+        info_frame.pack(fill="both", expand=True, pady=UI_SETTINGS["PADDING"]["MEDIUM"])
 
+        # Title Label
         ctk.CTkLabel(
             info_frame,
             text="Patient Information",
-            font=("Arial", 15, "bold")
-        ).pack(pady=(5, 10))
+            font=UI_SETTINGS["FONTS"]["HEADER"],
+            text_color=UI_SETTINGS["COLORS"]["TEXT_LIGHT"]
+        ).pack(pady=UI_SETTINGS["PADDING"]["SMALL"])
 
+        # Centered Form Frame
         form_frame = ctk.CTkFrame(info_frame, fg_color="transparent")
-        form_frame.pack(fill="x", padx=20, pady=(0, 10))
+        form_frame.pack(expand=True)  # Centered in available space
+        form_frame.grid_columnconfigure(0, weight=1)  # Centering
         form_frame.grid_columnconfigure(1, weight=1)
 
         fields = [
@@ -119,6 +151,8 @@ class Tab2Manager:
             ctk.CTkLabel(
                 form_frame,
                 text=label_text,
+                font=UI_SETTINGS["FONTS"]["NORMAL"],
+                text_color=UI_SETTINGS["COLORS"]["TEXT_LIGHT"],
                 anchor="e"
             ).grid(row=i, column=0, padx=(0, 10), pady=5, sticky="e")
 
@@ -126,21 +160,22 @@ class Tab2Manager:
                 form_frame,
                 textvariable=variable,
                 width=300,
-                fg_color="white",
-                text_color="black"
-            ).grid(row=i, column=1, pady=5, sticky="w")
+                fg_color=UI_SETTINGS["COLORS"]["TEXT_LIGHT"],
+                text_color=UI_SETTINGS["COLORS"]["TEXT_DARK"]
+            ).grid(row=i, column=1, padx=(0, 10), pady=5, sticky="w")
+
 
     def _create_info_button(self, parent, tooltip_text):
         """Create a circular info button with tooltip"""
         info_button = CircularButton(
             parent,
             text="?",
-            diameter=20,
+            diameter=30,
             bg_color="#007bff",
             text_color="white",
             border_color="white",
             border_width=1,
-            font=("Arial", 10, "bold")
+            font=("Arial", 14, "bold")
         )
         
         tooltip = ToolTip(info_button, text=tooltip_text)
@@ -150,99 +185,82 @@ class Tab2Manager:
         return info_button
 
     def _create_folder_section(self):
-        """Create the folder selection section"""
+        """Create the folder selection section and reduce vertical spacing"""
         folder_frame = ctk.CTkFrame(self.main_frame, fg_color="transparent")
-        folder_frame.pack(fill="x", pady=(5, 10))
+        folder_frame.pack(fill="both", expand=True, pady=UI_SETTINGS["PADDING"]["SMALL"])
 
+        # Title Label (Reduced padding)
         ctk.CTkLabel(
             folder_frame,
             text="Case Label",
-            font=("Arial", 15, "bold")
-        ).pack(pady=(5, 10))
+            font=UI_SETTINGS["FONTS"]["HEADER"],
+            text_color=UI_SETTINGS["COLORS"]["TEXT_LIGHT"]
+        ).pack(pady=(2, 2))  # Reduced spacing
 
+        # Centered Selection Frame
         selection_frame = ctk.CTkFrame(folder_frame, fg_color="transparent")
-        selection_frame.pack(fill="x", padx=20, pady=(0, 10))
+        selection_frame.pack(expand=True, anchor="center", pady=(2, 5))  # Reduced spacing
+
+        selection_frame.grid_columnconfigure(0, weight=1)
         selection_frame.grid_columnconfigure(1, weight=1)
 
+        # Label
         ctk.CTkLabel(
             selection_frame,
             text="Enter or select folder name:",
+            font=UI_SETTINGS["FONTS"]["NORMAL"],
+            text_color=UI_SETTINGS["COLORS"]["TEXT_LIGHT"],
             anchor="e"
-        ).grid(row=0, column=0, padx=(0, 10), pady=5, sticky="e")
+        ).grid(row=0, column=0, padx=(0, 10), pady=2, sticky="e")
 
+        # Entry + Dropdown Frame
         combo_frame = ctk.CTkFrame(selection_frame, fg_color="transparent")
         combo_frame.grid(row=0, column=1, sticky="w")
 
         initial_values = self._get_existing_folders() or [""]
-        
+
         self.app.folder_combobox = ctk.CTkComboBox(
             combo_frame,
-            width=150,
+            width=180,
             variable=self.app.folder_name_var,
             values=initial_values,
-            fg_color="white",
-            text_color="black",
+            fg_color=UI_SETTINGS["COLORS"]["TEXT_LIGHT"],  # Background color of the closed ComboBox
+            dropdown_fg_color=UI_SETTINGS["COLORS"]["TEXT_LIGHT"],  # Background color when opened
+            dropdown_text_color=UI_SETTINGS["COLORS"]["TEXT_DARK"],  # Ensures text is visible
+            text_color=UI_SETTINGS["COLORS"]["TEXT_DARK"],
             state="normal",
             command=self._on_combobox_select
         )
         self.app.folder_combobox.pack(side="left", padx=(0, 5))
 
+        # Info Button (Tooltip)
         info_button = self._create_info_button(
             combo_frame,
-            "Name folder by condition (e.g., 'OSA', 'TMD').\n"
-            "Use existing folder name if following up on same condition."
+            "Specify the case label (e.g., 'OSA', 'TMD').\n"
+            "For returning patients, select a condition name from the dropdown to link visits."
         )
         info_button.pack(side="left")
 
-        ctk.CTkButton(
-            selection_frame,
-            text="Browse Save Location",
-            command=self._handle_save_location,
-            font=("Times_New_Roman", 14)
-        ).grid(row=1, column=1, pady=(5, 0), sticky="w")
+
 
     def _create_navigation(self):
-        """Create navigation buttons with descriptive labels"""
-        nav_frame = ctk.CTkFrame(self.app.main_frame, fg_color="transparent")
+        """Create navigation buttons with descriptive labels, ensuring no duplicates."""
+        
+        # Remove any existing navigation frame in the parent before creating a new one
+        for widget in self.app.main_frame.winfo_children():
+            if isinstance(widget, NavigationFrame):
+                widget.destroy()
+
+        # Create new navigation
+        nav_frame = NavigationFrame(
+            self.app.main_frame,
+            previous_label="Home",
+            next_label="Information Review",
+            back_command=self.app.create_tab1,
+            next_command=self._validate_and_proceed
+        )
         nav_frame.pack(fill="x", side="bottom", pady=10)
 
-        # Back button and label
-        back_frame = ctk.CTkFrame(nav_frame, fg_color="transparent")
-        back_frame.pack(side="left", padx=20)
-        
-        ctk.CTkButton(
-            back_frame,
-            text="Back",
-            command=self.app.create_tab1,
-            width=100,
-            font=("Times_New_Roman", 16)
-        ).pack()
-        
-        ctk.CTkLabel(
-            back_frame,
-            text="Home Page",
-            font=("Arial", 12),
-            text_color="gray"
-        ).pack()
-
-        # Next button and label
-        next_frame = ctk.CTkFrame(nav_frame, fg_color="transparent")
-        next_frame.pack(side="right", padx=20)
-        
-        ctk.CTkButton(
-            next_frame,
-            text="Next",
-            command=self._validate_and_proceed,
-            width=100,
-            font=("Times_New_Roman", 16)
-        ).pack()
-        
-        ctk.CTkLabel(
-            next_frame,
-            text="Review and Confirm",
-            font=("Arial", 12),
-            text_color="gray"
-        ).pack()
 
     def _on_combobox_select(self, choice):
         """Handle ComboBox selection"""
@@ -283,6 +301,7 @@ class Tab2Manager:
     def _handle_folder_selection(self):
         """Handle the selection of DICOM folder"""
         folder_path = filedialog.askdirectory(title="Select Patient Folder")
+        self.logger.log_info(f"Patient folder selected: {folder_path}")
         if not folder_path:
             return
 
@@ -303,6 +322,7 @@ class Tab2Manager:
             messagebox.showinfo("Success", "Patient details loaded successfully.")
             
         except Exception as e:
+            self.logger.log_error("Failed to read patient details", e)
             messagebox.showerror("Error", f"Failed to read patient details: {e}")
             self.folder_status_label.configure(text="")
 
@@ -359,26 +379,6 @@ class Tab2Manager:
         except Exception as e:
             messagebox.showerror("Error", f"Could not set up folder path: {e}")
             return False
-
-    def _handle_save_location(self):
-        """Handle the selection of save location"""
-        if not self._setup_output_folder():
-            return
-
-        selected_folder = filedialog.askdirectory(
-            title="Confirm or Adjust Folder Location",
-            initialdir=self.app.full_folder_path
-        )
-
-        if selected_folder:
-            self.app.folder_name_var.set(Path(selected_folder).name)
-            self.app.full_folder_path = selected_folder
-            messagebox.showinfo(
-                "Success", 
-                f"Selected output folder:\n{selected_folder}"
-            )
-
-        self._update_folder_dropdown()
 
     def _validate_and_proceed(self):
         """Validate the form and proceed to next tab"""

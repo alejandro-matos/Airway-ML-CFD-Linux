@@ -7,6 +7,7 @@ import os
 import tkinter as tk
 import tkinter.messagebox as messagebox
 from gui.utils.app_logger import AppLogger
+from config.settings import UI_SETTINGS 
 
 class Tab1Manager:
     def __init__(self, app):
@@ -30,11 +31,11 @@ class Tab1Manager:
     def _create_logo_section(self):
         """Create the logo section at the top of the page"""
         logo_frame = ctk.CTkFrame(self.app.main_frame, fg_color="transparent")
-        logo_frame.pack(side="top", pady=10)
+        logo_frame.pack(pady=UI_SETTINGS["PADDING"]["LARGE"])  # More space around logo
 
         try:
-            logo_image = Image.open("ualbertalogo.png")
-            logo_ctk_image = CTkImage(logo_image, size=(150, 80))
+            logo_image = Image.open("/home/amatos/Desktop/GUI/Airway-ML-CFD-Linux/Ortho_App/gui/components/Images/ualbertalogo.png")
+            logo_ctk_image = CTkImage(logo_image, size=(250,120))
             logo_label = ctk.CTkLabel(logo_frame, image=logo_ctk_image, text="")
             logo_label.pack()
         except FileNotFoundError:
@@ -48,89 +49,91 @@ class Tab1Manager:
         title_label = ctk.CTkLabel(
             self.app.main_frame,
             text="Ortho CFD Application v0.2\n\nWelcome",
-            font=("Times_New_Roman", 25),
-            fg_color='#255233',
-            text_color="white",
+            font=UI_SETTINGS["FONTS"]["TITLE"],  # Using global font settings
+            fg_color=UI_SETTINGS["COLORS"]["PRIMARY"],
+            text_color=UI_SETTINGS["COLORS"]["TEXT_LIGHT"],
             justify="center",
-            width=450,
-            height=100
+            width=500,
+            height=150
         )
-        title_label.pack(pady=10)
+        title_label.pack(fill="x", padx=UI_SETTINGS["PADDING"]["MEDIUM"], pady=UI_SETTINGS["PADDING"]["MEDIUM"])
 
     def _create_description_section(self):
         """Create the description section with app information"""
         description_text = (
-            "This app calculates the pressure difference in the \n"
-            "nasal cavity from 3D X-RAY scans using CFD analysis.\n"
-            "Input files must be in STL or OBJ format.\n\n"
-            "This app uses Blender, OpenFOAM, and Paraview.\n\n"
-            "For more information, contact Dr. Carlos Lange\n"
-            "email: clange@ualberta.ca"
+            "[ApplicationTK] calculates the pressure difference in the \n"
+            "nasal cavity from 3D X-RAY scans using Computational Fliud Dynamics analysis.\n"
+            "Supported file formats: DICOM (.dcm), NIfTI (.nii.gz).\n\n"
+            "This application was built using: Python 3.11, nnUNetv2, Blender 2.82, OpenFOAM v2306, ParaView 5.12.\n\n"
+            "For inquiries, contact:\n"            "Dr. Carlos Lange - clange@ualberta.ca"
         )
-        
+
         description_label = ctk.CTkLabel(
             self.app.main_frame,
             text=description_text,
-            font=("Times_New_Roman", 15),
-            justify="center"
+            font=UI_SETTINGS["FONTS"]["NORMAL"],
+            text_color=UI_SETTINGS["COLORS"]["TEXT_LIGHT"],
+            justify="center",
+            wraplength=600  # Ensures text is readable on wider screens
         )
-        description_label.pack(pady=20)
+        description_label.pack(pady=UI_SETTINGS["PADDING"]["MEDIUM"])
     
     def _create_username_section(self):
-        """Create the username input section"""
-        username_frame = ctk.CTkFrame(
-            self.app.main_frame,
-            fg_color="transparent"
-        )
-        username_frame.pack(pady=20)
+        """Create the username input section with a modern design"""
+        username_frame = ctk.CTkFrame(self.app.main_frame, fg_color="transparent")
+        username_frame.pack(pady=UI_SETTINGS["PADDING"]["MEDIUM"])
 
-        # Configure grid layout
-        username_frame.columnconfigure(0, weight=1)
-        username_frame.columnconfigure(1, weight=1)
-        username_frame.columnconfigure(2, weight=1)
-
-        # Create username label
+        # Label
         username_label = ctk.CTkLabel(
             username_frame,
-            text="Username:",
-            font=("Arial", 15)
+            text="Enter Username:",
+            font=UI_SETTINGS["FONTS"]["HEADER"],
+            text_color=UI_SETTINGS["COLORS"]["TEXT_LIGHT"]
         )
-        username_label.grid(row=0, column=0, padx=10, pady=10, sticky="e")
+        username_label.pack(side="left", padx=UI_SETTINGS["PADDING"]["MEDIUM"])
 
         # Recreate username entry and bind it to username_var
         self.username_entry = ctk.CTkEntry(
             username_frame,
             textvariable=self.app.username_var,  # Rebind to the reinitialized variable
-            width=300,
-            fg_color="white",
-            text_color="black"
+            width=250,
+            fg_color=UI_SETTINGS["COLORS"]["TEXT_LIGHT"],
+            text_color=UI_SETTINGS["COLORS"]["TEXT_DARK"]
         )
-        self.username_entry.grid(row=0, column=1, padx=10, pady=10, sticky="w")
+        self.username_entry.pack(side="left", padx=UI_SETTINGS["PADDING"]["SMALL"])
 
     def _create_next_button(self):
-        """Create the next button to proceed to Tab 2"""
+        """Create a well-sized 'Next' button with a modern design"""
         next_button = ctk.CTkButton(
             self.app.main_frame,
             text="Next",
             command=self.validate_username,
-            width=140,
-            height=40,
-            font=("Times_New_Roman", 20)
+            width=160,
+            height=50,
+            font=UI_SETTINGS["FONTS"]["HEADER"],
+            fg_color=UI_SETTINGS["COLORS"]["NAV_BUTTON"],
+            hover_color=UI_SETTINGS["COLORS"]["NAV_HOVER"],
+            text_color=UI_SETTINGS["COLORS"]["TEXT_LIGHT"]
         )
-        next_button.pack(pady=(10, 20))
+        next_button.pack(pady=(UI_SETTINGS["PADDING"]["MEDIUM"], UI_SETTINGS["PADDING"]["LARGE"]))
 
     def validate_username(self):
+        """Check if username is valid before proceeding"""
         username = self.app.username_var.get().strip()  # Use the centralized variable
+
         if not username:
-            tk.messagebox.showerror("Error", "Please enter a username")
+            error_message = "Please enter a username."
+            self.logger.log_error(error_message)
+            tk.messagebox.showerror("Error", error_message)
             return False
 
-        # Log the username using AppLogger
+        if not username.isalnum():
+            error_message = f"Username '{username}' must contain only letters and numbers."
+            self.logger.log_error(error_message)
+            tk.messagebox.showerror("Error", "Username must contain only letters and numbers.")
+            return False
+
         self.logger.log_info(f"User logged in: {username}")
-
-        # Store the username in the app state for future use (optional)
         self.app.stored_username = username
-
-        # Switch to the next tab
-        self.app.create_tab2()  # Navigate to Tab 2
+        self.app.create_tab2()  # Navigate to next tab
         return True

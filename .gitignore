@@ -4,7 +4,9 @@ logs/
 nnUNet/
 SamplePatient/
 Ortho_App/New/
+Ortho_App/data/New10/
 Ortho_App/aad/
 Ortho_App/blender.crash.txt
 Ortho_App/gui_data.xlsx
 Ortho_App/P1T1.stl
+Ortho_App_0p2/

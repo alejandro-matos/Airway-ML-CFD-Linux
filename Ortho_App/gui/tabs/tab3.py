@@ -6,6 +6,7 @@ from customtkinter import CTkImage
 from ..components.navigation import NavigationFrame
 from ..components.info_display import InfoDisplay
 from ..utils.image_processing import generate_slices
+from config.settings import UI_SETTINGS
 
 class Tab3Manager:
     def __init__(self, app):
@@ -35,14 +36,15 @@ class Tab3Manager:
             command=self.app.go_home,
             width=80,
             height=40,
-            font=("Times_New_Roman", 16)
+            font=UI_SETTINGS["FONTS"]["NORMAL"]
         ).grid(row=0, column=0, padx=5, pady=5, sticky="w")
 
         # Step indicator
         ctk.CTkLabel(
             top_frame,
-            text="Step 3 of 4: Review and Confirm",
-            font=("Arial", 15),
+            text="Step 2 of 3: Review and Confirm",
+            font=UI_SETTINGS["FONTS"]["HEADER"],
+            text_color=UI_SETTINGS["COLORS"]["TEXT_LIGHT"],
             anchor="center"
         ).grid(row=0, column=1)
 
@@ -72,7 +74,7 @@ class Tab3Manager:
         info_display = InfoDisplay(
             parent,
             "Patient Details",
-            patient_info
+            patient_info,
         )
         info_display.pack(fill="x", padx=10, pady=10)
 
@@ -85,7 +87,8 @@ class Tab3Manager:
         ctk.CTkLabel(
             preview_frame,
             text="Scan Previews",
-            font=("Arial", 15, "bold")
+            font=UI_SETTINGS["FONTS"]["HEADER"],
+            text_color=UI_SETTINGS["COLORS"]["TEXT_LIGHT"]
         ).pack(pady=(10, 5))
 
         try:
@@ -106,11 +109,12 @@ class Tab3Manager:
                 ctk.CTkLabel(
                     view_frame,
                     text=view_name.capitalize(),
-                    font=("Arial", 12)
+                    font=UI_SETTINGS["FONTS"]["NORMAL"],
+                    text_color=UI_SETTINGS["COLORS"]["TEXT_LIGHT"]
                 ).pack(pady=(0, 5))
 
                 # Convert and display image
-                ctk_image = CTkImage(image, size=(150, 150))
+                ctk_image = CTkImage(image, size=(200, 200))
                 ctk.CTkLabel(
                     view_frame,
                     image=ctk_image,
@@ -122,7 +126,8 @@ class Tab3Manager:
             error_label = ctk.CTkLabel(
                 preview_frame,
                 text=f"Error loading scan previews: {str(e)}",
-                text_color="red"
+                text_color="red",
+                font=UI_SETTINGS["FONTS"]["NORMAL"]
             )
             error_label.pack(pady=10)
 
@@ -134,14 +139,22 @@ class Tab3Manager:
         return generate_slices(self.app.selected_dicom_folder)
 
     def _create_navigation(self):
-        """Create the navigation buttons"""
-        NavigationFrame(
+        """Create navigation buttons with descriptive labels, ensuring no duplicates."""
+        
+        # Remove any existing navigation frame in the parent before creating a new one
+        for widget in self.app.main_frame.winfo_children():
+            if isinstance(widget, NavigationFrame):
+                widget.destroy()
+
+        # Create new navigation
+        nav_frame = NavigationFrame(
             self.app.main_frame,
-            previous_label="Patient Information",
+            previous_label="Patient File Upload",
             next_label="Analysis Selection",
             back_command=self.app.create_tab2,
             next_command=self._validate_and_proceed
-        ).pack(fill="x", side="bottom", pady=20)
+        )
+        nav_frame.pack(fill="x", side="bottom", pady=10)
 
     def _validate_and_proceed(self):
         """Validate the review and proceed to next tab"""

@@ -118,10 +118,10 @@ def load_dicom_series(folder_path: str) -> Tuple[List[pydicom.dataset.FileDatase
 def generate_slices(dicom_folder: str) -> Dict[str, Image.Image]:
     """
     Generate middle slice previews in three orientations for dental CBCT.
-    
+
     Args:
         dicom_folder: Path to DICOM folder
-        
+
     Returns:
         Dictionary with axial, sagittal, and coronal preview images
     """
@@ -144,11 +144,11 @@ def generate_slices(dicom_folder: str) -> Dict[str, Image.Image]:
         # Enhance contrast
         enhanced = enhance_contrast(oriented)
         
-        # Convert to PIL image with proper sizing
-        target_width = 150
+        # Convert to PIL image with larger sizing
+        target_width = 200  # Increased from 150 to 250
         aspect_ratio = enhanced.shape[0] / enhanced.shape[1]
         target_height = int(target_width * aspect_ratio)
-        
+
         pil_image = Image.fromarray(enhanced)
         processed_slices[orientation] = pil_image.resize(
             (target_width, target_height),

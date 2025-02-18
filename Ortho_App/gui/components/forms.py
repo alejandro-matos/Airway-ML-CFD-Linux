@@ -39,3 +39,26 @@ class FormSection(ctk.CTkFrame):
             fg_color="transparent"
         )
         self.content.pack(fill="both", expand=True, padx=10, pady=5)
+    
+class ResultsFormSection(ctk.CTkFrame):
+    """
+    A section similar to FormSection but intended for displaying results.
+    Uses a solid background color for the content frame to be compatible with ttk Notebook.
+    """
+    def __init__(self, parent, title, notebook_bg="#ffffff", **kwargs):
+        super().__init__(parent, corner_radius=10, fg_color="transparent")
+        
+        # Create the title label with the same style as FormSection
+        self.title = ctk.CTkLabel(
+            self,
+            text=title,
+            font=("Arial", 15, "bold")
+        )
+        self.title.pack(pady=(10, 5), anchor="w")
+        
+        # Create the content frame with a solid background
+        self.content = ctk.CTkFrame(
+            self,
+            fg_color=notebook_bg  # Use a solid background for better compatibility with ttk widgets
+        )
+        self.content.pack(fill="both", expand=True, padx=10, pady=5)

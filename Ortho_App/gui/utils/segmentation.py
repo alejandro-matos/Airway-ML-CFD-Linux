@@ -9,6 +9,7 @@ import vtk
 from pathlib import Path
 import re
 from gui.utils.app_logger import AppLogger
+import time
 
 class AirwayProcessor:
     def __init__(self, input_folder, output_folder, callback=None):
@@ -358,8 +359,11 @@ class AirwayProcessor:
             stl_writer.SetFileName(str(stl_path))
             stl_writer.SetInputData(normals.GetOutput())
             stl_writer.Write()
-            
-            return str(stl_path)
+
+            # Generate STL Preview
+            preview_path = self.generate_stl_preview(str(stl_path))
+
+            return {'stl_path': str(stl_path), 'preview_path': preview_path}
             
         except Exception as e:
             self.logger.log_error(f"Error in STL creation: {e}")
@@ -367,35 +371,154 @@ class AirwayProcessor:
 
     def process(self):
         """Run the complete processing pipeline"""
-        try:
+        # try: # Uncomment for full functionality
             # Switch to determinate mode before starting actual processing
-            self.update_progress(
-                "Starting DICOM conversion...",
-                0,
-                "Beginning processing pipeline"
-            )
+        #     self.update_progress(
+        #         "Starting DICOM conversion...",
+        #         0,
+        #         "Beginning processing pipeline"
+        #     )
             
-            # Convert DICOM to NIfTI
-            nifti_path = self.convert_dicom_to_nifti()
+        #     # Convert DICOM to NIfTI
+        #     nifti_path = self.convert_dicom_to_nifti()
             
-            # Run nnUNet prediction
-            pred_path = self.run_nnunet_prediction()
+        #     # Run nnUNet prediction
+        #     pred_path = self.run_nnunet_prediction()
             
-            # Calculate volume
-            volume = self.calculate_volume(pred_path)
+        #     # Calculate volume
+        #     volume = self.calculate_volume(pred_path)
             
-            # Create STL
-            stl_path = self.create_stl(pred_path)
+        #     # Create STL
+        #     stl_path = self.create_stl(pred_path)
             
-            self.update_progress("Processing complete!", 100)
+        #     self.update_progress("Processing complete!", 100)
             
-            return {
-                'nifti_path': nifti_path,
-                'prediction_path': pred_path,
-                'volume': volume,
-                'stl_path': stl_path
-            }
+        #     return {
+        #         'nifti_path': nifti_path,
+        #         'prediction_path': pred_path,
+        #         'volume': volume,
+        #         'stl_path': stl_path
+        #     }
             
+        # except Exception as e:
+        #     self.update_progress(f"Error: {str(e)}", 0)
+        #     raise
+
+    # def generate_stl_preview(self, stl_path):  #Uncomment for full functionality tk
+    #     """
+    #     Generate a 2D preview image of an STL model and save it as a PNG file.
+    #     This method does NOT open a render window.
+    #     """
+    #     try:
+    #         # preview_path = str(Path(stl_path).with_suffix(".png")) # Uncomment for full functionality
+    #         preview_path = "/home/amatos/Desktop/amatos/Ilyass Idrissi Boutaybi/OSA/stl/IIB_2019-12-20_pred.png"
+
+    #         # Read STL file
+    #         reader = vtk.vtkSTLReader()
+    #         reader.SetFileName(stl_path)
+
+    #         # Create mapper
+    #         mapper = vtk.vtkPolyDataMapper()
+    #         mapper.SetInputConnection(reader.GetOutputPort())
+
+    #         # Create actor
+    #         actor = vtk.vtkActor()
+    #         actor.SetMapper(mapper)
+    #         actor.GetProperty().SetColor(0.9, 0.9, 0.9)  # Light gray
+
+    #         # Create renderer (offscreen mode)
+    #         renderer = vtk.vtkRenderer()
+    #         renderer.AddActor(actor)
+    #         renderer.SetBackground(1, 1, 1)  # White background
+
+    #         render_window = vtk.vtkRenderWindow()
+    #         render_window.SetOffScreenRendering(1)  # Ensure no window appears
+    #         render_window.AddRenderer(renderer)
+    #         render_window.SetSize(800, 600)  # Resolution
+
+    #         render_window.Render()
+
+    #         # Capture as PNG
+    #         window_to_image = vtk.vtkWindowToImageFilter()
+    #         window_to_image.SetInput(render_window)
+    #         window_to_image.SetScale(2)  # High resolution
+    #         window_to_image.SetInputBufferTypeToRGBA()
+    #         window_to_image.Update()
+
+    #         writer = vtk.vtkPNGWriter()
+    #         writer.SetFileName(preview_path)
+    #         writer.SetInputConnection(window_to_image.GetOutputPort())
+    #         writer.Write()
+
+    #         return preview_path
+
+        # except Exception as e:
+        #     self.logger.log_error(f"Error generating STL preview: {e}")
+        #     return None
+
+
+        # except Exception as e:
+        #     self.logger.log_error(f"Error generating STL preview: {e}")
+        #     return None
+
+    def generate_stl_preview(self, stl_path):  #Comment for full functionality tk
+        """
+        Generate a 2D preview image of an STL model and save it as a PNG file.
+        This method does NOT open a render window.
+        """
+        try:
+
+            # preview_path = str(Path(stl_path).with_suffix(".png"))
+            preview_path = "/home/amatos/Desktop/amatos/Ilyass Idrissi Boutaybi/OSA/stl/IIB_2019-12-20_pred.png"
+
+            # # Read STL file
+            # reader = vtk.vtkSTLReader()
+            # reader.SetFileName(stl_path)
+
+            # # Create mapper
+            # mapper = vtk.vtkPolyDataMapper()
+            # mapper.SetInputConnection(reader.GetOutputPort())
+
+            # # Create actor
+            # actor = vtk.vtkActor()
+            # actor.SetMapper(mapper)
+            # actor.GetProperty().SetColor(0.9, 0.9, 0.9)  # Light gray
+
+            # # Create renderer (offscreen mode)
+            # renderer = vtk.vtkRenderer()
+            # renderer.AddActor(actor)
+            # renderer.SetBackground(1, 1, 1)  # White background
+
+            # render_window = vtk.vtkRenderWindow()
+            # render_window.SetOffScreenRendering(1)  # Ensure no window appears
+            # render_window.AddRenderer(renderer)
+            # render_window.SetSize(800, 600)  # Resolution
+
+            # render_window.Render()
+
+            # # Capture as PNG
+            # window_to_image = vtk.vtkWindowToImageFilter()
+            # window_to_image.SetInput(render_window)
+            # window_to_image.SetScale(2)  # High resolution
+            # window_to_image.SetInputBufferTypeToRGBA()
+            # window_to_image.Update()
+
+            # writer = vtk.vtkPNGWriter()
+            # writer.SetFileName(preview_path)
+            # writer.SetInputConnection(window_to_image.GetOutputPort())
+            # writer.Write()
+
+            # self.update_progress("generating preview of model", 80)
+
+            return preview_path
+
         except Exception as e:
-            self.update_progress(f"Error: {str(e)}", 0)
-            raise
+            self.logger.log_error(f"Error generating STL preview: {e}")
+            return None
+
+
+        except Exception as e:
+            self.logger.log_error(f"Error generating STL preview: {e}")
+            return None
+
+    

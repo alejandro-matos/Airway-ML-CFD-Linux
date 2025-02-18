@@ -48,22 +48,23 @@ class OrthoCFDApp(ctk.CTk):
     def setup_window(self):
         """Configure the main window settings"""
         self.title(APP_SETTINGS["TITLE"])
-        self.geometry("600x700")
+        # self.geometry("1000x750")
         self.minsize(*APP_SETTINGS["MIN_SIZE"])
-        self.maxsize(*APP_SETTINGS["MAX_SIZE"])
-        
-        # Set theme
+
+        # Fullscreen with window decorations
+        self.attributes("-zoomed", True)  # Works cross-platform
+
+        self.resizable(True, True)
         ctk.set_appearance_mode("dark")
         ctk.set_default_color_theme(APP_SETTINGS["THEME"])
-        
-        # Set icon
         self.setup_icon()
+
     
     def setup_icon(self):
         """Set up the application icon"""
         try:
             # Load PNG image using PIL
-            icon_image = Image.open("/home/amatos/Desktop/GUI/Airway-ML-CFD-Linux/Ortho_App/CFDLab-blogo2.png")
+            icon_image = Image.open("/home/amatos/Desktop/GUI/Airway-ML-CFD-Linux/Ortho_App/gui/components/Images/CFDLab-blogo2.png")
             # Convert to PhotoImage
             photo = ImageTk.PhotoImage(icon_image)
             # Set as icon
@@ -108,15 +109,15 @@ class OrthoCFDApp(ctk.CTk):
         self.tab4_manager = Tab4Manager(self)
 
     def setup_gui(self):
-        """Set up the main GUI framework"""
+        """Set up the main GUI framework with a main frame."""
         self.main_frame = ctk.CTkFrame(self, corner_radius=10)
         self.main_frame.pack(fill="both", expand=True, padx=10, pady=10)
-        
+
         # Start with Tab 1
         self.create_tab1()
 
     def clear_main_frame(self):
-        """Clear all widgets from the main frame"""
+        """Clear all widgets from the main frame."""
         for widget in self.main_frame.winfo_children():
             widget.destroy()
 

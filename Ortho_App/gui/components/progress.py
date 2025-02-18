@@ -34,7 +34,7 @@ class ProgressSection(ctk.CTkFrame):
         # Output text with scrollbar
         self.output_text = ctk.CTkTextbox(
             self.output_frame,
-            height=150,
+            height=120,
             font=("Courier", 10)
         )
         self.output_text.pack(fill="both", expand=True)

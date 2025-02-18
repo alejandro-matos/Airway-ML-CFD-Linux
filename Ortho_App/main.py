@@ -3,9 +3,12 @@
 import sys
 import os
 from datetime import datetime
+import customtkinter as ctk
 import tkinter as tk
+from tkinter import messagebox
 from gui.app import OrthoCFDApp
 from gui.utils.app_logger import AppLogger
+
 
 def setup_environment():
     """
@@ -14,6 +17,7 @@ def setup_environment():
     Returns:
         tuple: (success: bool, error_message: str or None)
     """
+
     try:
         # Create necessary directories
         required_dirs = ['logs', 'temp', 'output']
@@ -105,7 +109,7 @@ def on_closing(app):
                 except Exception as e:
                     logger.log_warning(f"Error deleting temporary file {file_path}: {str(e)}")
 
-        logger.log_info("Application closing")
+        logger.log_info("Application closed by user")
         app.destroy()
         
     except Exception as e:

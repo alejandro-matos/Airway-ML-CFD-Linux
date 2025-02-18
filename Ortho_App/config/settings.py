@@ -7,7 +7,7 @@ import os
 APP_SETTINGS: Dict[str, Any] = {
     "TITLE": "Ortho CFD v0.2",
     "MIN_SIZE": (600, 750),
-    "MAX_SIZE": (700, 1000),
+    "MAX_SIZE": "FULL SCREEN",
     "THEME": "green",
     "APPEARANCE_MODE": "dark"
 }
@@ -25,10 +25,12 @@ PATH_SETTINGS: Dict[str, str] = {
 # UI settings
 UI_SETTINGS: Dict[str, Any] = {
     "FONTS": {
-        "TITLE": ("Times_New_Roman", 25),
-        "HEADER": ("Arial", 15, "bold"),
-        "NORMAL": ("Arial", 12),
-        "SMALL": ("Arial", 10)
+        "TITLE": ("Times_New_Roman", 30),
+        "HEADER": ("Arial", 20, "bold"),
+        "NORMAL": ("Arial", 16),
+        "SMALL": ("Arial", 12),
+        "BUTTON_TEXT":("Arial", 18, "bold"),
+        "BUTTON_LABEL":("Arial", 16),
     },
     "COLORS": {
         "PRIMARY": "#255233",
@@ -36,7 +38,10 @@ UI_SETTINGS: Dict[str, Any] = {
         "TEXT_LIGHT": "white",
         "TEXT_DARK": "black",
         "BACKGROUND": "gray20",
-        "BUTTON": "blue",
+        "REG_BUTTON": "#025d34",
+        "REG_HOVER": "#12251c",
+        "NAV_BUTTON": "#D39E00",
+        "NAV_HOVER": "#946C00",
         "WARNING": "red",
         "SUCCESS": "green"
     },

@@ -36,6 +36,8 @@ class Tab3Manager:
             command=self.app.go_home,
             width=80,
             height=40,
+            fg_color=UI_SETTINGS["COLORS"]["NAV_BUTTON"],
+            hover_color=UI_SETTINGS["COLORS"]["NAV_HOVER"],
             font=UI_SETTINGS["FONTS"]["NORMAL"]
         ).grid(row=0, column=0, padx=5, pady=5, sticky="w")
 

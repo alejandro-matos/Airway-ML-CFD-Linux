@@ -1,5 +1,6 @@
 import customtkinter as ctk
 from tkinter import ttk
+from config.settings import UI_SETTINGS
 
 class ProgressSection(ctk.CTkFrame):
     """A progress section with progress bar and output display"""
@@ -35,7 +36,7 @@ class ProgressSection(ctk.CTkFrame):
         self.output_text = ctk.CTkTextbox(
             self.output_frame,
             height=120,
-            font=("Courier", 10)
+            font=UI_SETTINGS["FONTS"]["SMALL"]
         )
         self.output_text.pack(fill="both", expand=True)
         
@@ -43,13 +44,17 @@ class ProgressSection(ctk.CTkFrame):
         self.cancel_button = ctk.CTkButton(
             self,
             text="Cancel",
-            command=self._cancel_callback,
+            command=self._handle_cancel,
             width=100,
-            state="disabled"
+            state="disabled",
+            font=UI_SETTINGS["FONTS"]["NORMAL"]
         )
         self.cancel_button.pack(pady=5)
         
-        self._cancel_callback = None
+        # Renamed attribute to avoid conflict with method name
+        self._cancel_callback_func = None
+        # Track whether cancellation is in progress
+        self.cancellation_in_progress = False
 
     def _safe_update(self, func):
         """Safely update GUI from any thread"""
@@ -58,20 +63,41 @@ class ProgressSection(ctk.CTkFrame):
         
     def set_cancel_callback(self, callback):
         """Set the callback for cancel button"""
-        self._cancel_callback = callback
+        self._cancel_callback_func = callback
+        self.cancellation_in_progress = False  # Reset cancellation flag when setting a new callback
         self._safe_update(
             lambda: self.cancel_button.configure(state="normal" if callback else "disabled")
         )
         
-    def _cancel_callback(self):
-        """Internal cancel callback"""
-        if self._cancel_callback:
-            self._cancel_callback()
+    def _handle_cancel(self):
+        """Internal method to handle cancel button click"""
+        if self._cancel_callback_func and not self.cancellation_in_progress:
+            # Disable the cancel button immediately to prevent multiple clicks
+            self.cancel_button.configure(state="disabled")
+            # Set the cancellation flag
+            self.cancellation_in_progress = True
+            # Update the progress label to show cancellation is in progress
+            self.progress_label.configure(
+                text="Cancellation in progress...",
+                text_color="orange"  # Visual indication
+            )
+            # Add a message to the output
+            self.output_text.insert("end", "Cancellation requested. Stopping process...\n")
+            self.output_text.see("end")
+            # Call the actual cancellation callback
+            self._cancel_callback_func()
             
     def start(self, message="Processing...", indeterminate=False):
         """Start the progress bar with a message"""
         def _start():
-            self.progress_label.configure(text=message)
+            # Reset cancellation flag
+            self.cancellation_in_progress = False
+            
+            self.progress_label.configure(
+                text=message,
+                font=UI_SETTINGS["FONTS"]["NORMAL"],
+                text_color=UI_SETTINGS["COLORS"]["TEXT_LIGHT"]
+            )
             self.output_text.delete("1.0", "end")
             
             if indeterminate:
@@ -81,7 +107,7 @@ class ProgressSection(ctk.CTkFrame):
                 self.progress_bar.configure(mode='determinate')
                 self.progress_bar['value'] = 0
                 
-            self.cancel_button.configure(state="normal" if self._cancel_callback else "disabled")
+            self.cancel_button.configure(state="normal" if self._cancel_callback_func else "disabled")
         
         self._safe_update(_start)
         
@@ -93,10 +119,28 @@ class ProgressSection(ctk.CTkFrame):
             # Reset the value to 0 for consistency
             self.progress_bar['value'] = 0
 
-            # Update the progress label
-            self.progress_label.configure(text=message)
+            # Update the progress label with appropriate color based on message
+            text_color = UI_SETTINGS["COLORS"]["TEXT_LIGHT"]
+            if "Cancel" in message:
+                text_color = "orange"
+            elif "Error" in message:
+                text_color = "red"
+            elif "Complete" in message:
+                text_color = "green"
+                
+            self.progress_label.configure(
+                text=message,
+                text_color=text_color
+            )
+            
+            # Reset cancellation flag
+            self.cancellation_in_progress = False
             # Disable the cancel button
             self.cancel_button.configure(state="disabled")
+            # Add a final message to the output if it was a cancellation
+            if "Cancel" in message:
+                self.output_text.insert("end", "Process was cancelled by user.\n")
+                self.output_text.see("end")
         
         self._safe_update(_stop)
 
@@ -104,12 +148,14 @@ class ProgressSection(ctk.CTkFrame):
     def update_progress(self, value, message=None, output_line=None):
         """Update progress bar value and optionally add output line"""
         def _update():
-            if self.progress_bar['mode'] == 'determinate':
-                self.progress_bar['value'] = value
+            if not self.cancellation_in_progress:
+                if self.progress_bar['mode'] == 'determinate':
+                    self.progress_bar['value'] = value
+                    
+                if message:
+                    self.progress_label.configure(text=message)
                 
-            if message:
-                self.progress_label.configure(text=message)
-                
+            # Always show output lines even during cancellation
             if output_line:
                 self.output_text.insert("end", output_line + "\n")
                 self.output_text.see("end")  # Auto-scroll to bottom
@@ -119,3 +165,7 @@ class ProgressSection(ctk.CTkFrame):
     def clear_output(self):
         """Clear the output text"""
         self._safe_update(lambda: self.output_text.delete("1.0", "end"))
+        
+    def is_cancellation_in_progress(self):
+        """Check if cancellation is in progress"""
+        return self.cancellation_in_progress

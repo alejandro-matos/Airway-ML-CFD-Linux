@@ -79,7 +79,7 @@ class Tab2Manager:
         return main_frame
 
     def _create_upload_section(self):
-        """Create the file upload section."""
+        """Create the file upload section using only native file dialog filtering"""
         upload_frame = ctk.CTkFrame(self.main_frame, fg_color="transparent")
         upload_frame.pack(fill="x", pady=UI_SETTINGS["PADDING"]["MEDIUM"])
 
@@ -92,24 +92,24 @@ class Tab2Manager:
 
         self.folder_status_label = ctk.CTkLabel(
             upload_frame,
-            text="No folder selected",
+            text="No files selected",
             font=UI_SETTINGS["FONTS"]["NORMAL"],
             text_color=UI_SETTINGS["COLORS"]["TEXT_LIGHT"]
         )
         self.folder_status_label.pack(pady=UI_SETTINGS["PADDING"]["SMALL"])
-
-        # Folder selection button with adjacent info button
+        
+        # File selection button with adjacent info button
         selection_frame = ctk.CTkFrame(upload_frame, fg_color="transparent")
         selection_frame.pack(pady=(5, 10))
         
         select_button = ctk.CTkButton(
             selection_frame,
-            text="Select Patient Folder",
+            text="Browse for Medical Images",
             command=self._handle_folder_selection,
             font=UI_SETTINGS["FONTS"]["BUTTON_TEXT"],
             fg_color=UI_SETTINGS["COLORS"]["REG_BUTTON"],
             hover_color=UI_SETTINGS["COLORS"]["REG_HOVER"],
-            width=180,
+            width=220,
             height=50,
         )
         select_button.pack(side="left")
@@ -117,9 +117,18 @@ class Tab2Manager:
         # Info button with tooltip explanation
         info_button = self._create_info_button(
             selection_frame,
-            "Navigate into the folder containing the medical images in DICOM format and then click OK."
+            "Select one or more medical image files.\nUse the file type dropdown in the file browser to filter for DICOM (.dcm) or NIfTI (.nii, .nii.gz) files."
         )
         info_button.pack(side="left", padx=5)
+
+    def _on_filetype_change(self, choice):
+        """Handle file type dropdown selection"""
+        if choice == "DICOM files only":
+            self.file_type_var.set("dicom")
+        elif choice == "NIfTI files only":
+            self.file_type_var.set("nifti")
+        else:
+            self.file_type_var.set("all")
 
     def _create_patient_info_section(self):
         """Create the patient information form section with centered alignment"""
@@ -241,8 +250,6 @@ class Tab2Manager:
         )
         info_button.pack(side="left")
 
-
-
     def _create_navigation(self):
         """Create navigation buttons with descriptive labels, ensuring no duplicates."""
         
@@ -260,7 +267,6 @@ class Tab2Manager:
             next_command=self._validate_and_proceed
         )
         nav_frame.pack(fill="x", side="bottom", pady=10)
-
 
     def _on_combobox_select(self, choice):
         """Handle ComboBox selection"""
@@ -299,44 +305,87 @@ class Tab2Manager:
             return []
 
     def _handle_folder_selection(self):
-        """Handle the selection of DICOM folder"""
-        folder_path = filedialog.askdirectory(title="Select Patient Folder")
-        self.logger.log_info(f"Patient folder selected: {folder_path}")
-        if not folder_path:
+        """Handle medical image selection with native file dialog filtering"""
+        # Define all file type filters that will appear in the dialog dropdown
+        filetypes = [
+            ("All Medical Image Formats", "*.dcm *.DCM *.nii *.nii.gz *.NII *.NII.GZ"),
+            ("DICOM Files", "*.dcm *.DCM"),
+            ("NIfTI Files", "*.nii *.nii.gz *.NII *.NII.GZ"),
+            ("All Files", "*.*")
+        ]
+        
+        # Open file dialog with filter options
+        files = filedialog.askopenfilenames(
+            title="Select Medical Image Files",
+            filetypes=filetypes
+        )
+        
+        if not files:
             return
-
+            
+        # Get the folder from the first file
+        folder_path = os.path.dirname(files[0])
+        self.logger.log_info(f"Patient files selected: {len(files)} files from {folder_path}")
+        
         try:
-            dicom_files = [f for f in os.listdir(folder_path) if f.endswith('.dcm')]
-            if not dicom_files:
-                raise ValueError("No DICOM files found in the selected directory.")
-
+            # Check what types of files were selected
+            dicom_files = [f for f in files if os.path.basename(f).lower().endswith('.dcm')]
+            nifti_files = [f for f in files if os.path.basename(f).lower().endswith(('.nii', '.nii.gz'))]
+            
+            if not dicom_files and not nifti_files:
+                raise ValueError("No DICOM or NIfTI files were selected.")
+            
+            # Store selected files in the app
+            self.app.selected_files = files
             self.app.selected_dicom_folder = folder_path
+            
+            # Process based on file types available
+            if dicom_files and not nifti_files:
+                self.app.file_format = "DICOM"
+                self._extract_patient_info_from_dicom(dicom_files[0])
+                file_type_str = "DICOM"
+                file_count = len(dicom_files)
+            elif nifti_files and not dicom_files:
+                self.app.file_format = "NIfTI"
+                self._clear_patient_fields()
+                file_type_str = "NIfTI"
+                file_count = len(nifti_files)
+            else:
+                # Both types selected
+                self.app.file_format = "Mixed"
+                if dicom_files:
+                    self._extract_patient_info_from_dicom(dicom_files[0])
+                else:
+                    self._clear_patient_fields()
+                file_type_str = "mixed format"
+                file_count = len(files)
+                
             self.folder_status_label.configure(
-                text=f"Selected folder: {Path(folder_path).name}"
+                text=f"Selected: {file_count} {file_type_str} files from {Path(folder_path).name}"
             )
-
-            dicom_path = Path(folder_path) / dicom_files[0]
-            self._extract_patient_info(pydicom.dcmread(str(dicom_path)))
+            
             self._update_folder_dropdown()
-            
-            messagebox.showinfo("Success", "Patient details loaded successfully.")
-            
+            messagebox.showinfo("Success", f"{file_type_str} file(s) loaded successfully.")
+                
         except Exception as e:
-            self.logger.log_error("Failed to read patient details", e)
-            messagebox.showerror("Error", f"Failed to read patient details: {e}")
-            self.folder_status_label.configure(text="")
+            self.logger.log_error(f"Failed to read medical image files", e)
+            messagebox.showerror("Error", f"Failed to read medical image files: {e}")
+            self.folder_status_label.configure(text="No files selected")
 
-    def _extract_patient_info(self, dicom_data):
-        """Extract patient information from DICOM data"""
+    def _extract_patient_info_from_dicom(self, dicom_path):
+        """Extract patient information from DICOM file"""
+        dicom_data = pydicom.dcmread(str(dicom_path))
+        
         # Name
-        self.app.patient_name.set(str(dicom_data.PatientName))
-
+        if hasattr(dicom_data, "PatientName"):
+            self.app.patient_name.set(str(dicom_data.PatientName))
+        
         # Doctor
         if hasattr(dicom_data, "ReferringPhysicianName"):
             doctor = dicom_data.ReferringPhysicianName
             self.app.patient_doctor_var.set(f"{doctor.family_name}, {doctor.given_name}")
         else:
-            self.app.patient_doctor_var.set("Not available")
+            self.app.patient_doctor_var.set("")
 
         # Dates
         for date_attr, var in [
@@ -351,7 +400,16 @@ class Tab2Manager:
                     ).strftime("%Y-%m-%d")
                     var.set(formatted_date)
                 else:
-                    var.set("Invalid Date")
+                    var.set("")
+            else:
+                var.set("")
+    
+    def _clear_patient_fields(self):
+        """Clear patient information fields when using NIfTI files"""
+        self.app.patient_name.set("")
+        self.app.patient_doctor_var.set("")
+        self.app.dob.set("")
+        self.app.scandate.set("")
 
     def _setup_output_folder(self):
         """Set up the output folder path"""

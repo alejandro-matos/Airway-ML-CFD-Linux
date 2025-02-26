@@ -1,7 +1,7 @@
 # gui/tabs/tab1.py
 
 import customtkinter as ctk
-from PIL import Image
+from PIL import Image, ImageTk
 from customtkinter import CTkImage
 import os
 import tkinter as tk
@@ -29,20 +29,98 @@ class Tab1Manager:
         self.username_entry.focus()
 
     def _create_logo_section(self):
-        """Create the logo section at the top of the page"""
+        """Create the logo section at the top of the page with animated GIF support"""
         logo_frame = ctk.CTkFrame(self.app.main_frame, fg_color="transparent")
         logo_frame.pack(pady=UI_SETTINGS["PADDING"]["LARGE"])  # More space around logo
 
         try:
-            logo_image = Image.open("/home/amatos/Desktop/GUI/Airway-ML-CFD-Linux/Ortho_App/gui/components/Images/ualbertalogo.png")
-            logo_ctk_image = CTkImage(logo_image, size=(250,120))
-            logo_label = ctk.CTkLabel(logo_frame, image=logo_ctk_image, text="")
-            logo_label.pack()
-        except FileNotFoundError:
+            # Path to the GIF file
+            gif_path = r"C:\Users\aleja\Desktop\Geometries\Airway-ML-CFD-Linux\Ortho_App\gui\components\Images\ualberta.gif"
+            
+            # Create a standard Tkinter label (not CTkLabel) for the animated GIF
+            self.gif_frames = []
+            self.current_frame = 0
+
+            # Add animation control attribute
+            self.animation_running = True
+            self.animation_after_id = None
+            
+            # Load the GIF and extract frames
+            gif = Image.open(gif_path)
+            
+            # Determine desired size (adjust as needed)
+            target_width = 250
+            target_height = 120
+            
+            # Count frames in the GIF
+            try:
+                frame_count = 0
+                while True:
+                    # Extract and resize each frame
+                    gif.seek(frame_count)
+                    frame = gif.copy()
+                    frame = frame.resize((target_width, target_height), Image.LANCZOS)
+                    frame_tk = ImageTk.PhotoImage(frame)
+                    self.gif_frames.append(frame_tk)
+                    frame_count += 1
+            except EOFError:
+                # End of frames reached
+                pass
+            
+            # Create a standard tkinter Label (not CTkLabel) for animation
+            self.gif_label = tk.Label(logo_frame, image=self.gif_frames[0], bg=self._get_frame_bg_color(logo_frame))
+            self.gif_label.pack()
+            
+            # Start animation if there are multiple frames
+            if len(self.gif_frames) > 1:
+                self._animate_gif(0)
+                
+        except Exception as e:
             messagebox.showerror(
                 "Error",
-                "Logo file not found. Please place 'ualbertalogo.png' in the same directory."
+                f"Failed to load logo: {str(e)}"
             )
+            
+    def _animate_gif(self, frame_index):
+        """Animate the GIF by cycling through frames with safety checks"""
+        # Safety check: if label doesn't exist anymore, stop animation
+        try:
+            if not self.animation_running or not self.gif_label.winfo_exists():
+                self.animation_running = False
+                return
+                
+            # Update the image
+            self.gif_label.configure(image=self.gif_frames[frame_index])
+            
+            # Calculate next frame index (loop back to 0 when reaching the end)
+            next_frame = (frame_index + 1) % len(self.gif_frames)
+            
+            # Schedule the next frame update after a delay
+            # You can adjust the delay (in ms) to control animation speed
+            # Store the after ID so we can cancel it if needed
+            self.animation_after_id = self.app.after(50, self._animate_gif, next_frame)
+        except Exception as e:
+            # If there's any error (like widget destroyed), stop animation
+            self.animation_running = False
+            self.logger.log_error(f"Animation error: {str(e)}")
+
+    def _stop_animation(self):
+        """Stop the GIF animation properly"""
+        self.animation_running = False
+        if hasattr(self, 'animation_after_id') and self.animation_after_id:
+            self.app.after_cancel(self.animation_after_id)
+            self.animation_after_id = None
+        
+    def _get_frame_bg_color(self, frame):
+        """Get the background color of the frame for the tkinter Label to match"""
+        # Get the actual hex color from the CTkFrame
+        if hasattr(frame, 'cget') and frame.cget("fg_color") != "transparent":
+            if isinstance(frame.cget("fg_color"), tuple):
+                # CTk often uses tuples for colors (light/dark mode)
+                return frame.cget("fg_color")[0]  # Use light mode color
+            return frame.cget("fg_color")
+        # Default to a standard background color if transparent
+        return "#F0F0F0"  # Light gray fallback
             
     def _create_title_section(self):
         """Create the title section with app name and welcome message"""
@@ -132,7 +210,8 @@ class Tab1Manager:
             self.logger.log_error(error_message)
             tk.messagebox.showerror("Error", "Username must contain only letters and numbers.")
             return False
-
+        
+        self._stop_animation()
         self.logger.log_info(f"User logged in: {username}")
         self.app.stored_username = username
         self.app.create_tab2()  # Navigate to next tab

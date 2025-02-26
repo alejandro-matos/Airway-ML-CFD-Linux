@@ -52,7 +52,7 @@ class OrthoCFDApp(ctk.CTk):
         self.minsize(*APP_SETTINGS["MIN_SIZE"])
 
         # Fullscreen with window decorations
-        self.attributes("-zoomed", True)  # Works cross-platform
+        # self.attributes("-zoomed", True)  # For Linux TK
 
         self.resizable(True, True)
         ctk.set_appearance_mode("dark")
@@ -64,7 +64,8 @@ class OrthoCFDApp(ctk.CTk):
         """Set up the application icon"""
         try:
             # Load PNG image using PIL
-            icon_image = Image.open("/home/amatos/Desktop/GUI/Airway-ML-CFD-Linux/Ortho_App/gui/components/Images/CFDLab-blogo2.png")
+            # icon_image = Image.open("/home/amatos/Desktop/GUI/Airway-ML-CFD-Linux/Ortho_App/gui/components/Images/CFDLab-blogo2.png") # Linux tk
+            icon_image = Image.open(r"C:\Users\aleja\Desktop\Geometries\Airway-ML-CFD-Linux\Ortho_App\gui\components\Images\CFDLab-blogo2.png")
             # Convert to PhotoImage
             photo = ImageTk.PhotoImage(icon_image)
             # Set as icon

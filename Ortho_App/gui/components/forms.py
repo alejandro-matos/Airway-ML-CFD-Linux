@@ -1,5 +1,6 @@
 # gui/components/forms.py
 import customtkinter as ctk
+from config.settings import UI_SETTINGS
 
 class LabeledEntry(ctk.CTkFrame):
     """A frame containing a label and entry field"""
@@ -30,7 +31,7 @@ class FormSection(ctk.CTkFrame):
         self.title = ctk.CTkLabel(
             self,
             text=title,
-            font=("Arial", 15, "bold")
+            font=UI_SETTINGS["FONTS"]["HEADER"]
         )
         self.title.pack(pady=(10, 5), anchor="w")
         
@@ -52,7 +53,7 @@ class ResultsFormSection(ctk.CTkFrame):
         self.title = ctk.CTkLabel(
             self,
             text=title,
-            font=("Arial", 15, "bold")
+            font=UI_SETTINGS["FONTS"]["HEADER"]
         )
         self.title.pack(pady=(10, 5), anchor="w")
         

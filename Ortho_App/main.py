@@ -27,9 +27,14 @@ def setup_environment():
         # Verify required external applications
         # Note: Implement actual checks based on your system
         required_apps = {
-            'Blender': '/usr/bin/blender',
-            'OpenFOAM': '/usr/lib/openfoam/openfoam2306',
-            'ParaView': '/usr/bin/paraview'
+            # Linux
+            # 'Blender': '/usr/bin/blender',
+            # 'OpenFOAM': '/usr/lib/openfoam/openfoam2306',
+            # 'ParaView': '/usr/bin/paraview'
+            # Windows testing tk
+            'Blender': r'C:\Users\aleja\Desktop\Geometries\summary.txt',
+            'OpenFOAM': r'C:\Users\aleja\Desktop\Geometries\summary.txt',
+            'ParaView': r'C:\Users\aleja\Desktop\Geometries\summary.txt'
         }
         
         missing_apps = []

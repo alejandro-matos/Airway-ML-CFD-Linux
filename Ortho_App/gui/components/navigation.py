@@ -22,7 +22,15 @@ class NavigationFrame(ctk.CTkFrame):
         # Create container for next button
         self.next_frame = self._create_button_frame("Next", next_label, next_command)
         self.next_frame.pack(side="right", padx=40, pady=(5, 10))  # Ensure spacing
+
+        # Store references to parent, commands, and buttons for later use
+        self.parent = parent
+        self.back_command = back_command
+        self.next_command = next_command
         
+        # Store reference to the buttons
+        self.back_button = None
+        self.next_button = None
 
     def _create_button_frame(self, button_text, label_text, command):
         """Create a frame containing a label above a button"""
@@ -48,6 +56,12 @@ class NavigationFrame(ctk.CTkFrame):
             hover_color=UI_SETTINGS["COLORS"]["NAV_HOVER"]
         )
         button.pack(side="top")  # Button stays below label
+        
+        # Store button references
+        if button_text == "Back":
+            self.back_button = button
+        elif button_text == "Next":
+            self.next_button = button
 
         return frame
 
@@ -69,6 +83,11 @@ class NavigationFrame2(ctk.CTkFrame):
         self.back_frame = self._create_button_frame("Back", previous_label, back_command)
         self.back_frame.pack(side="left", padx=40, pady=(5, 10))  # Ensure spacing
         
+        # Store references for later use
+        self.parent = parent
+        self.back_command = back_command
+        self.back_button = None
+        
     def _create_button_frame(self, button_text, label_text, command):
         """Create a frame containing a label above a button"""
         frame = ctk.CTkFrame(self, fg_color="transparent")
@@ -93,5 +112,9 @@ class NavigationFrame2(ctk.CTkFrame):
             hover_color=UI_SETTINGS["COLORS"]["NAV_HOVER"]
         )
         button.pack(side="top")  # Button stays below label
+        
+        # Store button reference
+        if button_text == "Back":
+            self.back_button = button
 
         return frame

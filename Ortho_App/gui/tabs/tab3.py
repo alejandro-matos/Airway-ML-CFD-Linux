@@ -54,7 +54,7 @@ class Tab3Manager:
         """Create the main content area with patient details and scan previews"""
         # Create main content frame
         content_frame = ctk.CTkFrame(self.app.main_frame, corner_radius=10)
-        content_frame.pack(fill="both", expand=True, padx=20, pady=20)
+        content_frame.pack(fill="both", expand=True, padx=20, pady=10)
 
         # Add patient details section
         self._create_patient_details(content_frame)
@@ -91,7 +91,7 @@ class Tab3Manager:
             text="Scan Previews",
             font=UI_SETTINGS["FONTS"]["HEADER"],
             text_color=UI_SETTINGS["COLORS"]["TEXT_LIGHT"]
-        ).pack(pady=(10, 5))
+        ).pack(pady=(10, 0))
 
         try:
             # Generate slices

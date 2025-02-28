@@ -28,6 +28,7 @@ UI_SETTINGS: Dict[str, Any] = {
         "TITLE": ("Times_New_Roman", 30),
         "HEADER": ("Arial", 20, "bold"),
         "NORMAL": ("Arial", 16),
+        "CATEGORY":("Arial", 16, "bold"),
         "SMALL": ("Arial", 12),
         "BUTTON_TEXT":("Arial", 18, "bold"),
         "BUTTON_LABEL":("Arial", 16),

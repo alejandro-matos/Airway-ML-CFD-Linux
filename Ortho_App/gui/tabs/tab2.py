@@ -66,7 +66,7 @@ class Tab2Manager:
         # Step indicator
         ctk.CTkLabel(
             top_frame,
-            text="Step 1 of 4: Upload Patient Scans & Information",
+            text="Step 1 of 3: Upload Patient Scans & Information",
             font=UI_SETTINGS["FONTS"]["HEADER"],
             text_color=UI_SETTINGS["COLORS"]["TEXT_LIGHT"],
             anchor="center"
@@ -361,7 +361,7 @@ class Tab2Manager:
                 file_count = len(files)
                 
             self.folder_status_label.configure(
-                text=f"Selected: {file_count} {file_type_str} files from {Path(folder_path).name}"
+                text=f"Selected: {file_type_str} files from {Path(folder_path).name}"
             )
             
             self._update_folder_dropdown()

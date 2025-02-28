@@ -8,6 +8,7 @@ import time
 from ..components.navigation import NavigationFrame2
 from ..components.progress import ProgressSection
 from ..components.forms import FormSection, ResultsFormSection
+from ..components.pdf_viewer import PDFViewerFrame
 from ..utils.segmentation import AirwayProcessor
 from pathlib import Path
 import threading
@@ -19,6 +20,7 @@ import platform
 import subprocess
 import threading
 import open3d as o3d
+import math
 from config.settings import UI_SETTINGS
 
 
@@ -30,7 +32,7 @@ class Tab4Manager:
         self.logger = AppLogger()  # Initialize logger
         self.render_images = {}  # Fix: Add this to prevent AttributeError
 
-        self.flow_rate = ctk.DoubleVar(value=5)
+        self.flow_rate = ctk.DoubleVar(value=10)
 
         # Add a cancellation flag that threads can check
         self.cancel_requested = False
@@ -61,11 +63,11 @@ class Tab4Manager:
         top_frame.columnconfigure(1, weight=3)  # Context info
         top_frame.columnconfigure(2, weight=1)  # Right padding
 
-        # Home button
+        # Home button with confirmation check
         ctk.CTkButton(
             top_frame,
             text="Home",
-            command=self.app.go_home,
+            command=self._confirm_home,  # Changed to use our new method
             width=80,
             height=40,
             font=UI_SETTINGS["FONTS"]["NORMAL"],
@@ -73,18 +75,27 @@ class Tab4Manager:
             hover_color=UI_SETTINGS["COLORS"]["NAV_HOVER"],
         ).grid(row=0, column=0, padx=5, pady=5, sticky="w")
 
-        # Context header
-        context_text = (
-            f"Patient: {self.app.patient_name.get()} | "
-            f"DOB: {self.app.dob.get()} | "
-            f"Physician: {self.app.patient_doctor_var.get()}"
-        )
+        # Step indicator
         ctk.CTkLabel(
             top_frame,
-            text=context_text,
-            font=("Arial", 13),
+            text="Step 3 of 3: Analysis",
+            font=UI_SETTINGS["FONTS"]["HEADER"],
+            text_color=UI_SETTINGS["COLORS"]["TEXT_LIGHT"],
             anchor="center"
-        ).grid(row=0, column=1, padx=10, pady=5)
+        ).grid(row=0, column=1)
+
+        # # Context header
+        # context_text = (
+        #     f"Patient: {self.app.patient_name.get()} | "
+        #     f"DOB: {self.app.dob.get()} | "
+        #     f"Physician: {self.app.patient_doctor_var.get()}"
+        # )
+        # ctk.CTkLabel(
+        #     top_frame,
+        #     text=context_text,
+        #     font=("Arial", 13),
+        #     anchor="center"
+        # ).grid(row=1, column=1, padx=10, pady=1)
     
     def _create_navigation(self):
         """Create navigation with only a Back button in the style of NavigationFrame"""
@@ -98,9 +109,8 @@ class Tab4Manager:
 
     def _confirm_back(self):
         """Prompt the user for confirmation before going back if analysis data exists."""
-        # Check if an analysis is in process or if data exists (e.g., results have been loaded)
-        data_present = self.processing_active or bool(self.results_frame.winfo_children())
-        if data_present:
+        # Check if analysis is in progress or results exist
+        if self._should_confirm_navigation():
             response = messagebox.askyesno(
                 "Confirm Navigation",
                 "An analysis is in process or has been completed. Going back will erase all data. Are you sure you want to proceed?"
@@ -108,8 +118,30 @@ class Tab4Manager:
             if response:
                 self.app.create_tab3()
         else:
+            # No analysis in progress or completed, just go back without confirmation
             self.app.create_tab3()
 
+    def _confirm_home(self):
+        """Confirm going home if analysis data exists."""
+        # Check if analysis is in progress or results exist
+        if self._should_confirm_navigation():
+            response = messagebox.askyesno(
+                "Confirm Navigation",
+                "An analysis is in process or has been completed. Going home will erase all data. Are you sure you want to proceed?"
+            )
+            if response:
+                self.app.go_home()
+        else:
+            # No analysis in progress or completed, just go home without confirmation
+            self.app.go_home()
+
+    def _should_confirm_navigation(self):
+        """Helper method to check if confirmation is needed before navigation."""
+        # Check if processing is active or if results have been generated
+        return self.processing_active or (
+            hasattr(self, 'preview_button') and 
+            self.preview_button.cget("state") == "normal"
+        )
 
     def _create_main_content(self):
         """Create the main content area with analysis options on the left and results on the right."""
@@ -119,10 +151,10 @@ class Tab4Manager:
 
         # Create left and right frames
         left_frame = ctk.CTkFrame(content_frame, fg_color="transparent")
-        left_frame.grid(row=0, column=0, padx=20, pady=10, sticky="nsew")
+        left_frame.grid(row=0, column=0, padx=20, pady=5, sticky="nsew")
 
         right_frame = ctk.CTkFrame(content_frame, fg_color="transparent")
-        right_frame.grid(row=0, column=1, padx=20, pady=10, sticky="nsew")
+        right_frame.grid(row=0, column=1, padx=20, pady=5, sticky="nsew")
 
         # Configure grid weights for resizing
         content_frame.grid_columnconfigure(0, weight=1)  # Left frame (Analysis/Processing)
@@ -140,7 +172,7 @@ class Tab4Manager:
     def _create_analysis_section(self, parent):
         """Create the analysis options section"""
         analysis_section = FormSection(parent, "Analysis Options", fg_color="transparent", font=UI_SETTINGS["FONTS"]["HEADER"])
-        analysis_section.pack(fill="x", pady=10)
+        analysis_section.pack(fill="x", pady=5)
 
         # Analysis type dropdown
         self.analysis_option = ctk.StringVar(value="Select Analysis Type")
@@ -152,9 +184,9 @@ class Tab4Manager:
                 "Airflow Simulation"
             ],
             command=self._update_processing_details,
-            width=400,
-            height=30,
-            font=UI_SETTINGS["FONTS"]["NORMAL"]
+            width=375,
+            height=40,
+            font=UI_SETTINGS["FONTS"]["BUTTON_LABEL"]
         )
         analysis_dropdown.pack(pady=(5, 10))
 
@@ -163,7 +195,7 @@ class Tab4Manager:
             analysis_section.content,
             text="",
             font=UI_SETTINGS["FONTS"]["BUTTON_LABEL"],
-            wraplength=280,
+            wraplength=350,
             justify="center"
         )
         self.processing_details_label.pack(pady=(0, 5))
@@ -187,36 +219,153 @@ class Tab4Manager:
         # Flow rate slider
         self.flow_rate_slider = ctk.CTkSlider(
             flow_control_frame,
-            from_=1.0,
-            to=15.0,
-            number_of_steps=140,  # 0.1 LPM increments
+            from_=0.1,
+            to=50.0,
+            number_of_steps=499,  # 0.1 LPM increments
             variable=self.flow_rate,
             width=200,
             command=self._update_flow_rate_label
         )
         self.flow_rate_slider.pack(side="left", padx=(0, 10))
         
-        # Flow rate value display
-        self.flow_rate_value_label = ctk.CTkLabel(
-            flow_control_frame,
-            text=f"{self.flow_rate.get():.1f}",
-            font=UI_SETTINGS["FONTS"]["NORMAL"],
-            width=50
+        # Create input/display frame (for entry, value, and unit)
+        input_frame = ctk.CTkFrame(flow_control_frame, fg_color="transparent")
+        input_frame.pack(side="left")
+        
+        # Flow rate entry field - directly input value
+        self.flow_rate_entry = ctk.CTkEntry(
+            input_frame,
+            width=50,
+            height=28,
+            justify="right",
+            font=UI_SETTINGS["FONTS"]["NORMAL"]
         )
-        self.flow_rate_value_label.pack(side="left")
+        self.flow_rate_entry.pack(side="left")
+        self.flow_rate_entry.insert(0, f"{self.flow_rate.get():.1f}")
+        
+        # Add validation and real-time update for the entry
+        self.flow_rate_entry.bind("<FocusOut>", self._validate_flow_rate_entry)
+        self.flow_rate_entry.bind("<Return>", self._validate_flow_rate_entry)
+        self.flow_rate_entry.bind("<KeyRelease>", self._update_slider_on_keyrelease)
         
         # Flow rate unit label
-        ctk.CTkLabel(
-            flow_control_frame,
+        unit_label = ctk.CTkLabel(
+            input_frame,
             text="LPM",
             font=UI_SETTINGS["FONTS"]["NORMAL"],
-        ).pack(side="left")
+        )
+        unit_label.pack(side="left", padx=(5, 0))
 
     def _update_flow_rate_label(self, value=None):
-        """Update the flow rate value label when slider changes"""
+        """Update the flow rate value when slider changes"""
         # Round to nearest 0.1 LPM for clean display
         rate_value = round(self.flow_rate.get() * 10) / 10
-        self.flow_rate_value_label.configure(text=f"{rate_value:.1f}")
+        
+        # Update the entry field
+        if hasattr(self, 'flow_rate_entry'):
+            current_text = self.flow_rate_entry.get()
+            new_text = f"{rate_value:.1f}"
+            
+            # Only update if the text has changed to avoid cursor jumping
+            if current_text != new_text:
+                self.flow_rate_entry.delete(0, "end")
+                self.flow_rate_entry.insert(0, new_text)
+    
+    def _update_slider_on_keyrelease(self, event=None):
+        """Update the slider in real-time as the user types in the entry field"""
+        # Don't process special keys like arrows, backspace, etc.
+        if event.keysym in ('Left', 'Right', 'Up', 'Down', 'BackSpace', 'Delete', 'Tab'):
+            return
+            
+        try:
+            # Get current text and try to convert to float
+            entry_text = self.flow_rate_entry.get().strip()
+            
+            # Handle empty string
+            if not entry_text:
+                return
+                
+            # Replace comma with period if present
+            entry_text = entry_text.replace(',', '.')
+            
+            # Try to convert to float - don't enforce range limits during typing
+            value = float(entry_text)
+            
+            # Only update if value is within range
+            if 1.0 <= value <= 50.0:
+                # Update the DoubleVar to move the slider in real-time
+                self.flow_rate.set(value)
+        except ValueError:
+            # Ignore conversion errors during typing
+            pass
+            
+    def _validate_flow_rate_entry(self, event=None):
+        """Validate the flow rate entry when focus leaves or Enter is pressed"""
+        try:
+            # Get the current value from the entry
+            entry_text = self.flow_rate_entry.get().strip()
+            
+            # Replace comma with period if present
+            entry_text = entry_text.replace(',', '.')
+            
+            # Convert to float
+            value = float(entry_text)
+            
+            # Check if value is outside valid range
+            if value < 1.0 or value > 50.0:
+                # Show notification to user
+                import tkinter as tk
+                messagebox = tk.messagebox
+                messagebox.showwarning(
+                    "Invalid Flow Rate", 
+                    "Please enter a value between 1.0 and 50.0 LPM"
+                )
+                
+                # Reset to current value or nearest valid value
+                if value < 1.0:
+                    value = 1.0
+                elif value > 50.0:
+                    value = 50.0
+            
+            # Round to 1 decimal place
+            value = round(value * 10) / 10
+            
+            # Update the DoubleVar to change the slider position
+            self.flow_rate.set(value)
+            
+            # Update the entry field with the formatted value
+            self.flow_rate_entry.delete(0, "end")
+            self.flow_rate_entry.insert(0, f"{value:.1f}")
+            
+            # Remove focus from entry field
+            if event and event.widget == self.flow_rate_entry:
+                self.app.main_frame.focus_set()
+            
+            # Important: Stop event propagation when Enter is pressed
+            if event and event.keysym == 'Return':
+                return "break"
+            
+        except ValueError:
+            # If conversion fails, show notification and reset
+            import tkinter as tk
+            messagebox = tk.messagebox
+            messagebox.showwarning(
+                "Invalid Input", 
+                "Please enter a valid number with up to one decimal place"
+            )
+            
+            # Reset to the current slider value
+            self.flow_rate_entry.delete(0, "end")
+            self.flow_rate_entry.insert(0, f"{self.flow_rate.get():.1f}")
+            
+            # Remove focus from entry field
+            if event and event.widget == self.flow_rate_entry:
+                self.app.main_frame.focus_set()
+                
+            # Important: Stop event propagation when Enter is pressed
+            if event and event.keysym == 'Return':
+                return "break"
+
 
     def _create_processing_section(self, parent):
         """Create the processing section with progress bar"""
@@ -241,17 +390,16 @@ class Tab4Manager:
     def _create_results_section(self, parent):
         """Create the results section with a Notebook to view different stages."""
         results_section = ResultsFormSection(parent, "Results")
-        results_section.pack(fill="both", padx=20, pady=(5, 10), expand=True)
+        results_section.pack(fill="both", padx=20, pady=(5, 5), expand=True)
 
         notebook_frame = results_section.content
 
         # Add description label below the Results header
         results_description = ctk.CTkLabel(
             results_section.content,
-            text="Switch between tabs to view different analysis stages. \nUse the 💾 Save and 📄 Open buttons below to access complete results.",
+            text="Switch between tabs to view different analysis stages. \nUse the Preview and Save buttons below to access complete results.",
             font=UI_SETTINGS["FONTS"]["NORMAL"],
             text_color=UI_SETTINGS["COLORS"]["TEXT_DARK"],
-            # bg_color=UI_SETTINGS["COLORS"]["SECONDARY"],
             wraplength=650,  # Allow text to wrap
             justify="center"
         )
@@ -260,7 +408,7 @@ class Tab4Manager:
         # Create a container for the notebook
         notebook_container = ctk.CTkFrame(notebook_frame, width=700, height=400,
                                         fg_color=results_section.content.cget("fg_color"))
-        notebook_container.pack(pady=(3, 10), fill="both", expand=True)
+        notebook_container.pack(pady=(3, 5), fill="both", expand=True)
         notebook_container.pack_propagate(False)
 
         # Define tab colors
@@ -343,6 +491,23 @@ class Tab4Manager:
         button_frame = ctk.CTkFrame(results_section, fg_color=results_section.cget("fg_color"))
         button_frame.pack(side="bottom", fill="x", padx=20, pady=10)
 
+        # Preview button
+        eye_icon = self._load_icon("eye", width=32) # Fallback to emoji if image loading fails
+        self.preview_button = ctk.CTkButton(
+            button_frame,
+            text="Preview Report",
+            image=eye_icon,
+            compound="left",
+            command=self._preview_report,
+            width=250,  # Make wider to take up 50% of space
+            height=40,
+            font=UI_SETTINGS["FONTS"]["BUTTON_TEXT"],
+            fg_color=UI_SETTINGS["COLORS"]["REG_BUTTON"],
+            hover_color=UI_SETTINGS["COLORS"]["REG_HOVER"],
+            state="disabled"
+        )
+        self.preview_button.pack(side="left", padx=(0, 5), fill="x", expand=True)
+
         # Export button
         save_icon = self._create_custom_icon("save", size=(24, 24))
         self.export_button = ctk.CTkButton(
@@ -351,33 +516,36 @@ class Tab4Manager:
             image=save_icon,
             compound="left",
             command=self._export_results_to_pdf,
-            width=200,
+            width=250,  # Make wider to take up 50% of space
             height=40,
             font=UI_SETTINGS["FONTS"]["BUTTON_TEXT"],
             fg_color=UI_SETTINGS["COLORS"]["REG_BUTTON"],
             hover_color=UI_SETTINGS["COLORS"]["REG_HOVER"],
             state="disabled"
         )
-        self.export_button.pack(side="left", padx=(0, 5))
-
-        # Open Report button
-        document_icon = self._create_custom_icon("document", size=(24, 24))
-        self.open_report_button = ctk.CTkButton(
-            button_frame,
-            text="Open Report",
-            image=document_icon,
-            compound="left",
-            command=self._open_report,
-            width=200,
-            height=40,
-            font=UI_SETTINGS["FONTS"]["BUTTON_TEXT"],
-            fg_color=UI_SETTINGS["COLORS"]["REG_BUTTON"],
-            hover_color=UI_SETTINGS["COLORS"]["REG_HOVER"],
-            state="disabled"
-        )
-        self.open_report_button.pack(side="left")
+        self.export_button.pack(side="left", fill="x", expand=True)
         
         return results_section
+
+    def _load_icon(self, icon_name, width=24):
+        try:
+            # Path to your icons folder
+            icon_path = os.path.join("gui", "components", "Images", f"{icon_name}.png")
+            
+            # Open the image to get its dimensions
+            img = Image.open(icon_path)
+            orig_width, orig_height = img.size
+            
+            # Calculate height to maintain aspect ratio
+            aspect_ratio = orig_height / orig_width
+            height = int(width * aspect_ratio)
+            
+            # Return the CTkImage with the calculated dimensions
+            return ctk.CTkImage(img, size=(width, height))
+        except Exception as e:
+            print(f"Error loading icon {icon_name}: {e}")
+            # Fallback to emoji
+            return None
     
     def _create_custom_icon(self, icon_type, size=(24, 24)):
         """Create a custom icon using PIL"""
@@ -420,7 +588,53 @@ class Tab4Manager:
                 (size[0]-4, size[1]-4), # Bottom right
                 (4, size[1]-4)    # Bottom left
             ], fill=front_color, outline=outline_color, width=2)
-                
+        
+        elif icon_type == "eye":
+            # Create a simple eye icon exactly like the reference image - more horizontally elongated
+            
+            # Eye dimensions - emphasize horizontal elongation
+            eye_width = size[0] - 2  # Use more horizontal space
+            eye_height = size[1] // 3  # Reduce vertical height for more elongated look
+            eye_center_x = size[0] // 2
+            eye_center_y = size[1] // 2
+            
+            # Draw the outer eye shape (black silhouette)
+            # Use a more direct approach with polygon points for football/almond shape
+            outer_points = []
+            
+            # Create horizontal elongated pointed eye shape
+            for angle in range(0, 360, 5):
+                # Use different x,y scaling to create elongated shape
+                x = eye_center_x + (eye_width/2) * math.cos(math.radians(angle))
+                # Reduce y component for flatter look
+                y = eye_center_y + (eye_height/2) * math.sin(math.radians(angle))
+                outer_points.append((x, y))
+            
+            # Draw the eye outline
+            draw.polygon(outer_points, fill=(0, 0, 0))
+            
+            # Create the white space inside (scaled down version of the outer shape)
+            inner_width = eye_width * 0.7
+            inner_height = eye_height * 0.7
+            inner_points = []
+            
+            for angle in range(0, 360, 5):
+                x = eye_center_x + (inner_width/2) * math.cos(math.radians(angle))
+                y = eye_center_y + (inner_height/2) * math.sin(math.radians(angle))
+                inner_points.append((x, y))
+            
+            # Draw the inner white part
+            draw.polygon(inner_points, fill=(255, 255, 255))
+            
+            # Draw the pupil as a solid black circle in the center
+            # Make pupil slightly smaller compared to overall eye size
+            pupil_radius = min(inner_width, inner_height) * 0.4
+            draw.ellipse(
+                [(eye_center_x - pupil_radius, eye_center_y - pupil_radius),
+                 (eye_center_x + pupil_radius, eye_center_y + pupil_radius)],
+                fill=(0, 0, 0)
+            )
+                    
         # Convert to CTkImage
         ctk_img = ctk.CTkImage(light_image=img, dark_image=img, size=size)
         return ctk_img
@@ -594,6 +808,22 @@ class Tab4Manager:
             messagebox.showerror("Error", "No output folder specified. Please return to the patient information page and try again.")
             return
 
+        # For airflow simulation, check if results already exist for this flow rate
+        if "Simulation" in self.analysis_option.get():
+            if self._cfd_results_exist():
+                # Results already exist - ask if user wants to use existing results
+                flow_str = f"{self.flow_rate.get():.1f}"
+                response = messagebox.askquestion(
+                    "Existing Results Found",
+                    f"CFD results for flow rate {flow_str} LPM already exist. Would you like to use these existing results instead of running a new simulation?",
+                    icon="question"
+                )
+                
+                if response == "yes":
+                    # Use existing results - skip to finalization step
+                    self._finalize_processing()
+                    return
+
         # Show confirmation dialog focused on analysis type
         analysis_type = self.analysis_option.get()
         message = f"Would you like to proceed with {analysis_type}?\n\n"
@@ -718,6 +948,32 @@ class Tab4Manager:
     def _start_processing(self):
         """Simulate processing with staged updates, logs, and dynamic UI updates."""
         try:
+            # Check if the selected flow rate already has a directory
+            target_cfd_path = self._get_full_cfd_path()
+            
+            # If the directory doesn't exist, copy from an existing directory
+            if not os.path.exists(target_cfd_path):
+                # Use a known existing directory as the source
+                source_cfd_path = r"C:\Users\aleja\Desktop\amatos\Qadra Hussein\Test\CFD_40_0"
+                
+                if os.path.exists(source_cfd_path):
+                    # Create the target directory
+                    os.makedirs(target_cfd_path, exist_ok=True)
+                    
+                    # Copy all files from source to target directory
+                    import shutil
+                    for item in os.listdir(source_cfd_path):
+                        s = os.path.join(source_cfd_path, item)
+                        d = os.path.join(target_cfd_path, item)
+                        
+                        if os.path.isdir(s):
+                            shutil.copytree(s, d, dirs_exist_ok=True)
+                        else:
+                            shutil.copy2(s, d)
+                            
+                    # Log the copy operation
+                    self.logger.log_info(f"Copied existing results to new directory for flow rate {self.flow_rate.get():.1f} LPM")
+            
             self.processing_active = True
             self.process_button.configure(state="disabled")
             
@@ -769,7 +1025,7 @@ class Tab4Manager:
             return
             
         # log_file_path = "/home/amatos/Desktop/amatos/Ilyass Idrissi Boutaybi/OSA/prediction/pred_log.txt" # linux path tk
-        log_file_path = r"C:\Users\aleja\Desktop\Geometries\Airway-ML-CFD-Linux\Ortho_App\amatos(copy1)\Ilyass Idrissi Boutaybi\OSA\prediction\pred_log.txt"
+        log_file_path = r"C:\Users\aleja\Desktop\amatos\Qadra Hussein\Test\prediction\pred_log.txt"
 
         try:
             # with open(log_file_path, "r") as log_file:  # Works with linux tk
@@ -836,7 +1092,7 @@ class Tab4Manager:
         self.scheduled_updates.append(
             self.app.after(7000, lambda: self._update_render_display_if_not_cancelled(
                 "segmentation",
-                r"C:\Users\aleja\Desktop\Geometries\Airway-ML-CFD-Linux\Ortho_App\amatos(copy1)\Ilyass Idrissi Boutaybi\OSA\stl\IIB_2019-12-20_pred.png"
+                r"C:\Users\aleja\Desktop\amatos\Qadra Hussein\Test\stl\IIB_2019-12-20_pred.png"
             ))
         )
 
@@ -851,7 +1107,7 @@ class Tab4Manager:
         """Schedule simulation-specific processing steps"""
         if self.cancel_requested:
             return
-            
+                
         self.scheduled_updates.append(
             self.app.after(9000, lambda: self._update_processing_stage_if_not_cancelled(
                 88, "Preparing 3D model for airflow analysis..."
@@ -864,11 +1120,12 @@ class Tab4Manager:
             ))
         )
         
-        # Use the unified method for updating the display for post-processing
+        # Use dynamic path with flow rate for postprocessing image
+        postprocessed_img_path = r"C:\Users\aleja\Desktop\amatos\Qadra Hussein\Test_1\Test Run\IIB_2019-12-20_assem.png"
         self.scheduled_updates.append(
             self.app.after(13000, lambda: self._update_render_display_if_not_cancelled(
                 "postprocessing",
-                r"C:\Users\aleja\Desktop\Geometries\Airway-ML-CFD-Linux\Ortho_App\amatos(copy1)\Ilyass Idrissi Boutaybi\OSA\CFD\IIB_2019-12-20_assem.png"
+                postprocessed_img_path
             ))
         )
 
@@ -879,7 +1136,7 @@ class Tab4Manager:
 
         self.scheduled_updates.append(
             self.app.after(15000, lambda: self._update_processing_stage_if_not_cancelled(
-                96, "Running airflow simulation..."
+                96, f"Running airflow simulation at {self.flow_rate.get():.1f} LPM..."
             ))
         )
         
@@ -889,11 +1146,13 @@ class Tab4Manager:
             ))
         )
         
-        # Use the unified method for updating the CFD display
+        # Use dynamic path for CFD image
+        # cfd_img_path = os.path.join(self._get_full_cfd_path(), "IIB_2019-12-20_CFD.png") # replae when simulation works tk
+        cfd_img_path = r"C:\Users\aleja\Desktop\amatos\Qadra Hussein\Test_1\Test Run\IIB_2019-12-20_CFD.png"
         self.scheduled_updates.append(
             self.app.after(20000, lambda: self._update_render_display_if_not_cancelled(
                 "cfd",
-                r"C:\Users\aleja\Desktop\Geometries\Airway-ML-CFD-Linux\Ortho_App\amatos(copy1)\Ilyass Idrissi Boutaybi\OSA\CFD\IIB_2019-12-20_CFD.png"
+                cfd_img_path
             ))
         )
         
@@ -945,24 +1204,30 @@ class Tab4Manager:
         # Stop the progress bar
         self.progress_section.stop("Processing complete!")
         
-        # Enable the Export Results button
+        # Enable the Preview and Export buttons
+        self.preview_button.configure(state="normal")
         self.export_button.configure(state="normal")
         
         # Populate all tabs with content
         self.app.update_idletasks()  # Force UI update before rendering tabs
         
         # Segmentation tab
-        segmentation_path = r"C:\Users\aleja\Desktop\Geometries\Airway-ML-CFD-Linux\Ortho_App\amatos(copy1)\Ilyass Idrissi Boutaybi\OSA\stl\IIB_2019-12-20_pred.png"
+        segmentation_path = r"C:\Users\aleja\Desktop\amatos\Qadra Hussein\Test\stl\IIB_2019-12-20_pred.png"
         self._update_render_display("segmentation", segmentation_path)
         
         # If simulation was selected, populate other tabs
         if "Simulation" in self.analysis_option.get():
+            # Get paths based on selected flow rate
+            cfd_base_path = self._get_full_cfd_path()
+            
             # Post-processed tab
-            postprocessed_path = r"C:\Users\aleja\Desktop\Geometries\Airway-ML-CFD-Linux\Ortho_App\amatos(copy1)\Ilyass Idrissi Boutaybi\OSA\CFD\IIB_2019-12-20_assem.png"
+            # postprocessed_path = os.path.join(cfd_base_path, "IIB_2019-12-20_assem.png") # Change when legit tk
+            postprocessed_path = r"C:\Users\aleja\Desktop\amatos\Qadra Hussein\Test_1\Test Run\IIB_2019-12-20_assem.png"
             self._update_render_display("postprocessing", postprocessed_path)
             
             # CFD tab
-            cfd_path = r"C:\Users\aleja\Desktop\Geometries\Airway-ML-CFD-Linux\Ortho_App\amatos(copy1)\Ilyass Idrissi Boutaybi\OSA\CFD\IIB_2019-12-20_CFD.png"
+            # cfd_path = os.path.join(cfd_base_path, "IIB_2019-12-20_CFD.png") tk
+            cfd_path = r"C:\Users\aleja\Desktop\amatos\Qadra Hussein\Test_1\Test Run\IIB_2019-12-20_CFD.png"
             self._update_render_display("cfd", cfd_path)
             
             # Select CFD tab as it's the final result
@@ -1004,7 +1269,7 @@ class Tab4Manager:
         self.scheduled_updates.append(
             self.app.after(7000, lambda: self._update_render_display_if_not_cancelled(
                 "segmentation",
-                r"C:\Users\aleja\Desktop\Geometries\Airway-ML-CFD-Linux\Ortho_App\amatos(copy1)\Ilyass Idrissi Boutaybi\OSA\stl\IIB_2019-12-20_pred.png"
+                r"C:\Users\aleja\Desktop\amatos\Qadra Hussein\Test\stl\IIB_2019-12-20_pred.png"
             ))
         )
 
@@ -1120,7 +1385,7 @@ class Tab4Manager:
                 button_frame,
                 text="🔄 Open Airway Prediction Model in 3D Viewer",
                 command=lambda: self._display_interactive_stl(
-                    r"C:\Users\aleja\Desktop\Geometries\Airway-ML-CFD-Linux\Ortho_App\amatos(copy1)\Ilyass Idrissi Boutaybi\OSA\stl\P5T1.stl"),
+                    r"C:\Users\aleja\Desktop\amatos\Qadra Hussein\Test\stl\P5T1.stl"),
                 width=350,
                 height=40,
                 font=UI_SETTINGS["FONTS"]["BUTTON_TEXT"],
@@ -1231,7 +1496,6 @@ class Tab4Manager:
                 messagebox.showerror("Error", "Segmentation preview image not found!")
         else:
             messagebox.showerror("Error", "Processing failed. Could not load segmentation preview.")
-
 
     def _display_segmentation_image(self, image_path):
         """Just call the unified update method for consistency"""
@@ -1365,7 +1629,7 @@ class Tab4Manager:
         try:
             def view_components():
                 # Base path for components
-                base_path = r"C:\Users\aleja\Desktop\Geometries\Airway-ML-CFD-Linux\Ortho_App\amatos(copy1)\Ilyass Idrissi Boutaybi\OSA\stl"
+                base_path = r"C:\Users\aleja\Desktop\amatos\Qadra Hussein\Test\stl"
                 
                 # Load inlet (green)
                 inlet_path = os.path.join(base_path, "inlet.stl")
@@ -1443,17 +1707,17 @@ class Tab4Manager:
             threading.Thread(target=view_mesh, daemon=True).start()
         
             def view_mesh2():
-                inlet_path = r"C:\Users\aleja\Desktop\Geometries\Airway-ML-CFD-Linux\Ortho_App\amatos(copy1)\Ilyass Idrissi Boutaybi\OSA\stl\inlet.stl"
+                inlet_path = r"C:\Users\aleja\Desktop\amatos\Qadra Hussein\Test\stl\inlet.stl"
                 inlet_mesh = o3d.io.read_triangle_mesh(inlet_path)
                 inlet_mesh.compute_vertex_normals()
                 inlet_mesh.paint_uniform_color([0, 1, 0])  # Green
 
-                outlet_path = r"C:\Users\aleja\Desktop\Geometries\Airway-ML-CFD-Linux\Ortho_App\amatos(copy1)\Ilyass Idrissi Boutaybi\OSA\stl\outlet.stl"
+                outlet_path = r"C:\Users\aleja\Desktop\amatos\Qadra Hussein\Test\stl\outlet.stl"
                 outlet_mesh = o3d.io.read_triangle_mesh(outlet_path)
                 outlet_mesh.compute_vertex_normals()
                 outlet_mesh.paint_uniform_color([1, 0, 0])  # Red
 
-                wall_path = r"C:\Users\aleja\Desktop\Geometries\Airway-ML-CFD-Linux\Ortho_App\amatos(copy1)\Ilyass Idrissi Boutaybi\OSA\stl\wall.stl"
+                wall_path = r"C:\Users\aleja\Desktop\amatos\Qadra Hussein\Test\stl\wall.stl"
                 wall_mesh = o3d.io.read_triangle_mesh(wall_path)
                 wall_mesh.compute_vertex_normals()
                 wall_mesh.paint_uniform_color([0.7, 0.7, 0.7])  # Gray
@@ -1464,61 +1728,117 @@ class Tab4Manager:
             tk.messagebox.showerror("Error", f"Failed to display interactive STL viewer:\n{e}")
     
     def _export_results_to_pdf(self):
-        """Save the report as a PDF file with a specific location."""
-        # Default PDF path
-        pdf_path = r"C:\Users\aleja\Desktop\Geometries\Airway-ML-CFD-Linux\Ortho_App\amatos(copy1)\Ilyass Idrissi Boutaybi\OSA\CFD\exported_results.pdf"
-        
+        """Save the report as a PDF file automatically to a predetermined location."""
         try:
-            # Generate and save the report
-            if self._generate_report(pdf_path, show_confirmation=True):
-                # Enable the Open Report button if it isn't already
-                if self.open_report_button.cget("state") == "disabled":
-                    self.open_report_button.configure(state="normal")
-        except Exception:
-            # Error is already handled in _generate_report
-            pass
-
-    def _open_report(self):
-        """Open the report, generating it on-the-fly if it doesn't exist yet."""
-        default_report_path = r"C:\Users\aleja\Desktop\Geometries\Airway-ML-CFD-Linux\Ortho_App\amatos(copy1)\Ilyass Idrissi Boutaybi\OSA\CFD\exported_results.pdf"
-        
-        # Check if report exists (either from previous export or as default)
-        report_exists = hasattr(self, "report_pdf_path") and os.path.exists(self.report_pdf_path)
-        
-        if not report_exists:
-            # If analysis has been completed but report not saved, generate it first
-            if self.processing_active is False and self.results_frame.winfo_children():
-                # Generate report on-the-fly without showing confirmation message
-                try:
-                    self._generate_report(default_report_path, show_confirmation=False)
-                    self.report_pdf_path = default_report_path
-                    report_exists = True
-                except Exception as e:
-                    messagebox.showerror("Error", f"Failed to generate report:\n{str(e)}")
-                    return
+            # Get flow rate formatted with underscore for filename
+            flow_str = f"{self.flow_rate.get():.1f}".replace('.', '_')
+            
+            # Use predetermined path with flow rate in the filename
+            # Get directory path based on flow rate
+            output_dir = os.path.join(r"C:\Users\aleja\Desktop\amatos\Qadra Hussein\Test", f"CFD_{flow_str}")
+            os.makedirs(output_dir, exist_ok=True)  # Create directory if it doesn't exist
+            
+            # Construct the full path for the PDF file
+            save_path = os.path.join(output_dir, f"exported_results_flow_{flow_str}.pdf")
+            
+            # If we already have a preview PDF, use it as a basis
+            if hasattr(self, "preview_pdf_path") and os.path.exists(self.preview_pdf_path):
+                # Generate new PDF without the watermark
+                if self._generate_report(save_path, show_confirmation=True):
+                    # Store the path for reference
+                    self.report_pdf_path = save_path
+                    return True
             else:
-                messagebox.showinfo("Info", "No analysis results to display. Please complete an analysis first.")
-                return
-        
-        # Open the report with the appropriate system application
-        try:
-            if platform.system() == "Windows":
-                os.startfile(self.report_pdf_path)
-            elif platform.system() == "Darwin":  # macOS
-                subprocess.call(["open", self.report_pdf_path])
-            else:  # Linux and other
-                subprocess.call(["xdg-open", self.report_pdf_path])
+                # No preview exists, so generate directly
+                if self._generate_report(save_path, show_confirmation=True):
+                    # Store the path for reference
+                    self.report_pdf_path = save_path
+                    return True
+                    
         except Exception as e:
-            messagebox.showerror("Error", f"Failed to open report:\n{str(e)}")
+            messagebox.showerror("Error", f"Failed to save report:\n{str(e)}")
+            return False
+
+    # def _open_report(self):
+    #     """Open the report, generating it on-the-fly if it doesn't exist yet."""
+    #     default_report_path = r"C:\Users\aleja\Desktop\amatos\Qadra Hussein\Test_1\Test Run\exported_results_flow_10_0.pdf"
+        
+    #     # Check if report exists (either from previous export or as default)
+    #     report_exists = hasattr(self, "report_pdf_path") and os.path.exists(self.report_pdf_path)
+        
+    #     if not report_exists:
+    #         # If analysis has been completed but report not saved, generate it first
+    #         if self.processing_active is False and self.results_frame.winfo_children():
+    #             # Generate report on-the-fly without showing confirmation message
+    #             try:
+    #                 self._generate_report(default_report_path, show_confirmation=False)
+    #                 self.report_pdf_path = default_report_path
+    #                 report_exists = True
+    #             except Exception as e:
+    #                 messagebox.showerror("Error", f"Failed to generate report:\n{str(e)}")
+    #                 return
+    #         else:
+    #             messagebox.showinfo("Info", "No analysis results to display. Please complete an analysis first.")
+    #             return
+        
+    #     # Open the report with the appropriate system application
+    #     try:
+    #         if platform.system() == "Windows":
+    #             os.startfile(self.report_pdf_path)
+    #         elif platform.system() == "Darwin":  # macOS
+    #             subprocess.call(["open", self.report_pdf_path])
+    #         else:  # Linux and other
+    #             subprocess.call(["xdg-open", self.report_pdf_path])
+    #     except Exception as e:
+    #         messagebox.showerror("Error", f"Failed to open report:\n{str(e)}")
+    
+    def _get_cfd_dir_name(self, flow_rate=None):
+        """
+        Get the name of the CFD directory based on flow rate, using underscore instead of decimal.
+        If flow_rate is None, uses the current user-selected flow rate.
+        """
+        if flow_rate is None:
+            flow_rate = self.flow_rate.get()
+        
+        # Format with exactly one decimal place
+        flow_str = f"{flow_rate:.1f}"
+        # Replace decimal point with underscore
+        flow_dir = flow_str.replace('.', '_')
+        
+        return f"CFD_{flow_dir}"
+    
+    def _get_full_cfd_path(self, flow_rate=None):
+        """
+        Get the full path to the CFD directory for the specified flow rate.
+        """
+        cfd_dir = self._get_cfd_dir_name(flow_rate)
+        
+        # Base path where CFD results are stored
+        base_path = r"C:\Users\aleja\Desktop\amatos\Qadra Hussein\Test"
+        
+        return os.path.join(base_path, cfd_dir)
+
+    def _cfd_results_exist(self, flow_rate=None):
+        """
+        Check if CFD results already exist for the specified flow rate.
+        Returns True if the case.foam file exists in the CFD directory.
+        """
+        cfd_path = self._get_full_cfd_path(flow_rate)
+        
+        # Check if directory exists
+        if not os.path.exists(cfd_path):
+            return False
+        
+        # Check if case.foam file exists (indicator that simulation completed)
+        case_foam_path = os.path.join(cfd_path, "case.foam")
+        return os.path.exists(case_foam_path)
     
     def _display_interactive_cfd(self):
-        """
-        Launch an interactive viewer for CFD simulation results
-        """
+        """Launch an interactive viewer for CFD simulation results"""
         try:
             def view_cfd_results():
-                # Base path for CFD results
-                cfd_path = r"C:\Users\aleja\Desktop\Geometries\Airway-ML-CFD-Linux\Ortho_App\amatos(copy1)\Ilyass Idrissi Boutaybi\OSA\CFD"
+                # Use dynamic path based on selected flow rate
+                cfd_path = self._get_full_cfd_path()
                 
                 # Load mesh for airway
                 mesh_path = os.path.join(cfd_path, "cfd_mesh.stl")  # Adjust filename as needed
@@ -1526,7 +1846,7 @@ class Tab4Manager:
                 # Fallback if the specific mesh file doesn't exist
                 if not os.path.exists(mesh_path):
                     # Use the wall mesh as a fallback
-                    mesh_path = r"C:\Users\aleja\Desktop\Geometries\Airway-ML-CFD-Linux\Ortho_App\amatos(copy1)\Ilyass Idrissi Boutaybi\OSA\stl\wall.stl"
+                    mesh_path = r"C:\Users\aleja\Desktop\amatos\Qadra Hussein\Test\stl\wall.stl"
                 
                 mesh = o3d.io.read_triangle_mesh(mesh_path)
                 mesh.compute_vertex_normals()
@@ -1536,7 +1856,7 @@ class Tab4Manager:
                 
                 # Create visualization window
                 vis = o3d.visualization.Visualizer()
-                vis.create_window(window_name="CFD Results Viewer", width=800, height=600)
+                vis.create_window(window_name=f"CFD Results Viewer - {self.flow_rate.get():.1f} LPM", width=800, height=600)
                 vis.add_geometry(mesh)
                 
                 # Set rendering options for better visualization
@@ -1587,8 +1907,16 @@ class Tab4Manager:
         )
         return button
     
-    def _generate_report(self, pdf_path, show_confirmation=True):
-        """Generate and save a PDF report of the results with enhanced formatting."""
+    def _create_report_pdf(self, pdf_path, add_preview_elements=True):
+        """Common helper method to generate the PDF report
+        
+        Args:
+            pdf_path: The path where the PDF should be saved
+            add_preview_elements: Whether to add preview-specific elements (watermark, note)
+        
+        Returns:
+            True if successful, False otherwise
+        """
         try:
             # Create PDF canvas with letter page size
             c = canvas.Canvas(pdf_path, pagesize=letter)
@@ -1607,8 +1935,21 @@ class Tab4Manager:
             c.drawString(50, height - 80, analysis_text)
             c.drawRightString(width - 50, height - 80, date_text)
 
-            # Section: Quantitative Measurements
+            # Section: Patient Information
             y_position = height - 110
+            c.setFont("Helvetica-Bold", 14)
+            c.drawString(50, y_position, "Patient Information:")
+            c.setFont("Helvetica", 12)
+
+            # Patient details
+            c.drawString(70, y_position - 20, f"Name: {self.app.patient_name.get()}")
+            c.drawString(70, y_position - 35, f"Date of Birth: {self.app.dob.get()}")
+            c.drawString(70, y_position - 50, f"Physician: {self.app.patient_doctor_var.get()}")
+            
+            # Adjust the y_position for the next section
+            y_position -= 75
+
+            # Section: Quantitative Measurements
             c.setFont("Helvetica-Bold", 14)
             c.drawString(50, y_position, "Quantitative Measurements:")
             c.setFont("Helvetica", 12)
@@ -1616,46 +1957,47 @@ class Tab4Manager:
             c.drawString(70, y_position - 20, f"Airway Volume: {airway_volume} cm³")
 
             # Section: Airflow Simulation Summary
-            y_position -= 50
+            y_position -= 45
             c.setFont("Helvetica-Bold", 14)
             c.drawString(50, y_position, "Airflow Simulation Summary:")
             c.setFont("Helvetica", 12)
 
-            # Define and print initial conditions
-            initial_conditions = [
-                "Density (ρ): 1.122 kg/m³",
-                "Kinematic viscosity (ν): 1.539 x 10^-5 m²/s",
-                "Initial velocity: 1 m/s",
-                "Flow type: Laminar (Slow and steady, no turbulence)"
-            ]
-            y_position -= 20
-            for condition in initial_conditions:
-                c.drawString(70, y_position-10, condition)
-                y_position -= 15
+            # Add flow rate information
+            c.drawString(70, y_position - 20, f"Flow Rate: {self.flow_rate.get():.1f} LPM")
+            c.drawString(70, y_position - 35, f"Air Density (ρ): 1.122 kg/m³")
+            c.drawString(70, y_position - 50, f"Kinematic viscosity (ν): 1.539 x 10^-5 m²/s")
+            c.drawString(70, y_position - 65, f"Initial velocity: 0 m/s (Initially at rest)")
+            c.drawString(70, y_position - 80, f"Flow type: Turbulent")
+
+            y_position -= 80
 
             # Note the simulation software version
             c.setFont("Helvetica", 12)
             c.drawString(70, y_position - 30, "Simulation performed using OpenFoam v2306.")
 
             # Move y_position for images (reduce excessive spacing)
-            y_position -= 40
+            y_position -= 45
 
             # Add segmentation images side by side
-            segmentation_img = r"C:\Users\aleja\Desktop\Geometries\Airway-ML-CFD-Linux\Ortho_App\amatos(copy1)\Ilyass Idrissi Boutaybi\OSA\stl\IIB_2019-12-20_pred.png"
-            processed_img = r"C:\Users\aleja\Desktop\Geometries\Airway-ML-CFD-Linux\Ortho_App\amatos(copy1)\Ilyass Idrissi Boutaybi\OSA\CFD\IIB_2019-12-20_assem.png"
+            segmentation_img = r"C:\Users\aleja\Desktop\amatos\Qadra Hussein\Test\stl\IIB_2019-12-20_pred.png"
+            processed_img = r"C:\Users\aleja\Desktop\amatos\Qadra Hussein\Test_1\Test Run\IIB_2019-12-20_assem.png"
 
             if os.path.exists(segmentation_img) and os.path.exists(processed_img):
-                c.drawImage(segmentation_img, 50, y_position - 140, width=200, height=120)
-                c.drawImage(processed_img, 300, y_position - 140, width=200, height=120)
-
+                # Calculate center positions for better horizontal alignment
+                first_image_x = (width - 200) / 2 - 100  # Center-left
+                second_image_x = first_image_x + 250     # Center-right
+                
+                # Standard version (no white background)
+                c.drawImage(segmentation_img, first_image_x, y_position - 120, width=200, height=120)
+                c.drawImage(processed_img, second_image_x, y_position - 120, width=200, height=120)
                 c.setFont("Helvetica-Oblique", 10)
-                c.drawCentredString(50 + 100, y_position - 150, "Figure 1: Initial Segmentation")
-                c.drawCentredString(300 + 100, y_position - 150, "Figure 2: Processed Segmentation")
+                c.drawCentredString(first_image_x + 100, y_position - 130, "Figure 1: Initial Segmentation")
+                c.drawCentredString(second_image_x + 100, y_position - 130, "Figure 2: Processed Segmentation")
             else:
                 c.drawString(50, y_position - 30, "Segmentation images not found.")
 
-            # Adjust y_position after segmentation images
-            y_position -= 170
+            # Adjust y_position after segmentation images - reduce this value to move CFD section up
+            y_position -= 150  # Changed from 170 to 150
 
             # CFD Simulation Results
             c.setFont("Helvetica-Bold", 14)
@@ -1665,27 +2007,144 @@ class Tab4Manager:
             c.drawString(50, y_position, "Airflow velocity and pressure contours with a scale bar are shown below.")
             y_position -= 10
 
-            # Add CFD Simulation Image
-            cfd_img = r"C:\Users\aleja\Desktop\Geometries\Airway-ML-CFD-Linux\Ortho_App\amatos(copy1)\Ilyass Idrissi Boutaybi\OSA\CFD\IIB_2019-12-20_CFD.png"
+            # Add CFD Simulation Image - centered and moved up
+            cfd_img = r"C:\Users\aleja\Desktop\amatos\Qadra Hussein\Test_1\Test Run\IIB_2019-12-20_CFD.png"
             if os.path.exists(cfd_img):
-                c.drawImage(cfd_img, 175, y_position - 250, width=300, height=150)
+                cfd_x = (width - 200) / 2  # Center the CFD image
+                cfd_y = y_position - 200   # Moved up by increasing value
+                
+                c.drawImage(cfd_img, cfd_x-70, cfd_y, width=400, height=200)
                 c.setFont("Helvetica-Oblique", 10)
-                c.drawCentredString(100 + 150, y_position - 310, "Figure 3: CFD Simulation Contour Plot")
+                c.drawCentredString(cfd_x + 150, cfd_y - 10, "Figure 3: CFD Simulation Contour Plot")
             else:
-                c.drawString(75, y_position - 30, "CFD simulation image not found.")
+                c.drawString(75 if not add_preview_elements else 50, y_position - 30, "CFD simulation image not found.")
+
+            # Add preview-specific elements
+            if add_preview_elements:
+                # Add a note that this is a preview
+                c.setFont("Helvetica", 10)  # Use standard Helvetica
+                c.setFillColorRGB(0.5, 0.5, 0.5)  # Dark gray
+                c.drawString(50, 30, "This is a preview. Click 'Save Report as PDF' to save the final version.")
 
             # Save the PDF
             c.save()
-            
-            # Store the path for future reference
-            self.report_pdf_path = pdf_path
-            
-            # Show confirmation if requested
-            if show_confirmation:
-                messagebox.showinfo("Save Complete", f"Report saved to:\n{pdf_path}")
-
             return True
+            
+        except Exception as e:
+            self.logger.log_error(f"Error generating PDF: {str(e)}")
+            return False
+
+    def _preview_report(self):
+        """Generate and show a preview of the report directly in the application."""
+        try:
+            import tempfile
+            
+            # Create a temporary file for the preview
+            with tempfile.NamedTemporaryFile(suffix='.pdf', delete=False) as temp_file:
+                temp_pdf_path = temp_file.name
+            
+            # Generate the report with preview elements
+            if self._create_report_pdf(temp_pdf_path, add_preview_elements=False):
+                # Store the path for reference when saving
+                self.preview_pdf_path = temp_pdf_path
+                
+                # Create and show PDF Viewer dialog
+                self._display_pdf_in_viewer(temp_pdf_path, is_preview=True)
+                    
+                # Enable the save button if it isn't already
+                if self.export_button.cget("state") == "disabled":
+                    self.export_button.configure(state="normal")
+                    
+                return True
+            else:
+                raise Exception("Failed to generate report PDF")
+                    
+        except Exception as e:
+            messagebox.showerror("Error", f"Failed to generate PDF preview:\n{str(e)}")
+            return False
+
+    def _generate_report(self, pdf_path, show_confirmation=True):
+        """Generate and save a PDF report of the results with enhanced formatting."""
+        try:
+            # Generate the report without preview elements
+            if self._create_report_pdf(pdf_path, add_preview_elements=False):
+                # Store the path for future reference
+                self.report_pdf_path = pdf_path
+                
+                # Show confirmation if requested
+                if show_confirmation:
+                    messagebox.showinfo("Save Complete", f"Report saved to:\n{pdf_path}")
+
+                return True
+            else:
+                raise Exception("Failed to generate report PDF")
+                
         except Exception as e:
             if show_confirmation:
                 messagebox.showerror("Error", f"Failed to generate PDF:\n{str(e)}")
             raise
+        
+    def _display_pdf_in_viewer(self, pdf_path, is_preview=False):
+        """Display the PDF in an embedded viewer"""
+        try:
+            # Check if we need to import PyMuPDF first
+            try:
+                import fitz  # PyMuPDF
+            except ImportError:
+                response = messagebox.askquestion(
+                    "Missing Dependency",
+                    "The PDF viewer requires PyMuPDF (fitz) to be installed. "
+                    "Would you like to continue with external viewer instead?"
+                )
+                if response == "yes":
+                    # Fall back to external viewer
+                    self._open_with_external_viewer(pdf_path)
+                return
+
+            # Create a new top-level window for the viewer
+            if not hasattr(self, 'viewer_window') or not self.viewer_window.winfo_exists():
+                self.viewer_window = ctk.CTkToplevel(self.app)
+                self.viewer_window.title("Report Preview" if is_preview else "Report Viewer")
+                self.viewer_window.geometry("780x1000")
+                self.viewer_window.minsize(600, 800)
+                
+                # Make it modal (blocks interaction with main window)
+                self.viewer_window.transient(self.app)
+                self.viewer_window.grab_set()
+
+                # Create PDF viewer frame and pass UI settings
+                self.pdf_viewer = PDFViewerFrame(
+                    self.viewer_window, 
+                    ui_settings=UI_SETTINGS  # Pass your UI settings
+                )
+                self.pdf_viewer.pack(fill="both", expand=True, padx=10, pady=10)
+                
+                # Set close callback to destroy the window
+                self.pdf_viewer.set_close_callback(lambda: self.viewer_window.destroy())
+                
+                # Set window close protocol
+                self.viewer_window.protocol("WM_DELETE_WINDOW", self.viewer_window.destroy)
+            
+            # Load the PDF
+            self.pdf_viewer.load_pdf(pdf_path)
+            
+        except Exception as e:
+            messagebox.showerror("Error", f"Failed to display PDF in viewer:\n{str(e)}")
+            # Fall back to external viewer
+            self._open_with_external_viewer(pdf_path)
+    
+    def _open_with_external_viewer(self, pdf_path):
+        """Open PDF with external viewer as fallback"""
+        try:
+            import platform
+            import subprocess
+            import os
+            
+            if platform.system() == "Windows":
+                os.startfile(pdf_path)
+            elif platform.system() == "Darwin":  # macOS
+                subprocess.call(["open", pdf_path])
+            else:  # Linux and other
+                subprocess.call(["xdg-open", pdf_path])
+        except Exception as e:
+            messagebox.showerror("Error", f"Failed to open PDF with external viewer:\n{str(e)}")

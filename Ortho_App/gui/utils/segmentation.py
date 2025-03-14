@@ -1,5 +1,4 @@
 import os
-import logging
 import subprocess
 import threading
 import SimpleITK as sitk
@@ -39,37 +38,6 @@ class AirwayProcessor:
         """Update progress through callback if available"""
         if self.callback:
             self.callback(message, percentage, output_line)
-
-    # def _stream_subprocess_output(self, process, stage_name, base_progress):
-    #     """Stream subprocess output and update progress"""
-    #     while True:
-    #         if process.poll() is not None:
-    #             break
-                
-    #         output_line = process.stdout.readline().strip()
-    #         if output_line:
-    #             # Extract progress from nnUNet output if possible
-    #             if "processing case" in output_line.lower():
-    #                 try:
-    #                     case_num = int(output_line.split()[2])
-    #                     total_cases = int(output_line.split()[4])
-    #                     progress = base_progress + (case_num / total_cases) * 20
-    #                     self.update_progress(
-    #                         f"{stage_name}: Processing case {case_num}/{total_cases}",
-    #                         progress,
-    #                         output_line
-    #                     )
-    #                 except (IndexError, ValueError):
-    #                     self.update_progress(f"{stage_name}: {output_line}", base_progress, output_line)
-    #             else:
-    #                 self.update_progress(f"{stage_name}: {output_line}", base_progress, output_line)
-
-    #     # Check for any remaining output
-    #     remaining_output = process.stdout.read()
-    #     if remaining_output:
-    #         for line in remaining_output.splitlines():
-    #             if line.strip():
-    #                 self.update_progress(f"{stage_name}: {line}", base_progress, line)
 
     def _stream_subprocess_output(self, process, stage_name, base_progress):
         """Stream subprocess output and update progress"""
@@ -134,8 +102,9 @@ class AirwayProcessor:
                     '-o', str(self.prediction_folder),
                     '-d', 'Dataset014_Airways',
                     '-c', '3d_fullres',
-                    '-device', 'cpu',
-                    '-f', 'all'
+                    '-device', 'cuda',
+                    '-f', 'all',
+                    '-step_size', '0.7',
                 ],
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,
@@ -180,7 +149,7 @@ class AirwayProcessor:
             return str(new_path)
             
         except Exception as e:
-            logging.error(f"Error in nnUNet prediction: {e}")
+            self.logger.log_error(f"Error in nnUNet prediction: {e}")
             raise
                 
     def cancel_processing(self):
@@ -195,52 +164,30 @@ class AirwayProcessor:
         return False
 
     def convert_dicom_to_nifti(self):
-        """Convert DICOM series to NIfTI format with filename as Initials_YYYY-MM-DD"""
+        """
+        Convert a single DICOM series to NIfTI format.
+        The output file is named based on the input folder name (e.g. ABC.nii.gz).
+        """
         try:
             self.update_progress("Converting DICOM to NIfTI...", 10)
-            
-            # Read DICOM series
+            self.logger.log_info("Converting DICOM to NIfTI...")
             reader = sitk.ImageSeriesReader()
             dicom_names = reader.GetGDCMSeriesFileNames(str(self.input_folder))
-            
             if not dicom_names:
                 raise ValueError("No DICOM series found in input directory")
-            
-            # Read first slice to get metadata
-            first_slice = sitk.ReadImage(dicom_names[0])
-            
-            # Extract scan date and patient name from metadata
-            scan_date = first_slice.GetMetaData("0008|0020")  # Format is YYYYMMDD
-            full_name = first_slice.GetMetaData("0010|0010").replace("^", " ").strip()
-            
-            # Generate initials from patient name
-            name_parts = full_name.split()
-            initials = ''.join(part[0].upper() for part in name_parts if part)
-            
-            # Format the date from YYYYMMDD to YYYY-MM-DD
-            formatted_date = f"{scan_date[:4]}-{scan_date[4:6]}-{scan_date[6:8]}"
-            
-            # Now read the full series
             reader.SetFileNames(dicom_names)
-            reader.MetaDataDictionaryArrayUpdateOn()
             image = reader.Execute()
-            
-            # Check and correct orientation if needed
-            direction = image.GetDirection()
-            if direction[8] < 0:
+            # Optional: adjust orientation if needed.
+            if image.GetDirection()[8] < 0:
                 image = sitk.Flip(image, [False, False, True])
-            
-            # Create filename with initials and formatted date
-            filename = f"{initials}_{formatted_date}_0000.nii.gz"
-            nifti_path = self.nifti_folder / filename
-            
-            # Save as NIfTI
-            sitk.WriteImage(image, str(nifti_path))
-            
-            return str(nifti_path)
-            
+            # Use the input folder’s name to generate the output filename.
+            folder_name = self.input_folder.stem
+            output_file = self.nifti_folder / f"{folder_name}_0000.nii.gz"
+            sitk.WriteImage(image, str(output_file))
+            self.logger.log_info(f"NIfTI file saved: {output_file}")
+            return str(output_file)
         except Exception as e:
-            logging.error(f"Error in DICOM to NIfTI conversion: {e}")
+            self.logger.log_error(f"Error in DICOM to NIfTI conversion: {e}")
             raise
 
     def calculate_volume(self, nifti_path):
@@ -263,7 +210,7 @@ class AirwayProcessor:
             return total_volume_mm3
 
         except Exception as e:
-            logging.error(f"Error in volume calculation: {e}")
+            self.logger.log_error(f"Error in volume calculation: {e}")
             raise
 
     def create_stl(self, nifti_path, threshold_value=1, decimate=True, decimate_target_reduction=0.5):
@@ -371,95 +318,38 @@ class AirwayProcessor:
 
     def process(self):
         """Run the complete processing pipeline"""
-        # try: # Uncomment for full functionality
+        try:
             # Switch to determinate mode before starting actual processing
-        #     self.update_progress(
-        #         "Starting DICOM conversion...",
-        #         0,
-        #         "Beginning processing pipeline"
-        #     )
+            self.update_progress(
+                "Starting DICOM conversion...",
+                0,
+                "Beginning processing pipeline"
+            )
             
-        #     # Convert DICOM to NIfTI
-        #     nifti_path = self.convert_dicom_to_nifti()
+            # Convert DICOM to NIfTI
+            nifti_path = self.convert_dicom_to_nifti()
             
-        #     # Run nnUNet prediction
-        #     pred_path = self.run_nnunet_prediction()
+            # Run nnUNet prediction
+            pred_path = self.run_nnunet_prediction()
             
-        #     # Calculate volume
-        #     volume = self.calculate_volume(pred_path)
+            # Calculate volume
+            volume = self.calculate_volume(pred_path)
             
-        #     # Create STL
-        #     stl_path = self.create_stl(pred_path)
+            # Create STL
+            stl_result = self.create_stl(pred_path)
             
-        #     self.update_progress("Processing complete!", 100)
+            self.update_progress("Processing complete!", 100)
             
-        #     return {
-        #         'nifti_path': nifti_path,
-        #         'prediction_path': pred_path,
-        #         'volume': volume,
-        #         'stl_path': stl_path
-        #     }
+            return {
+                'nifti_path': nifti_path,
+                'prediction_path': pred_path,
+                'volume': volume,
+                'stl_path': stl_result  # This contains both the STL path and preview path
+            }
             
-        # except Exception as e:
-        #     self.update_progress(f"Error: {str(e)}", 0)
-        #     raise
-
-    # def generate_stl_preview(self, stl_path):  #Uncomment for full functionality tk
-    #     """
-    #     Generate a 2D preview image of an STL model and save it as a PNG file.
-    #     This method does NOT open a render window.
-    #     """
-    #     try:
-    #         # preview_path = str(Path(stl_path).with_suffix(".png")) # Uncomment for full functionality
-    #         preview_path = "/home/amatos/Desktop/amatos/Ilyass Idrissi Boutaybi/OSA/stl/IIB_2019-12-20_pred.png"
-
-    #         # Read STL file
-    #         reader = vtk.vtkSTLReader()
-    #         reader.SetFileName(stl_path)
-
-    #         # Create mapper
-    #         mapper = vtk.vtkPolyDataMapper()
-    #         mapper.SetInputConnection(reader.GetOutputPort())
-
-    #         # Create actor
-    #         actor = vtk.vtkActor()
-    #         actor.SetMapper(mapper)
-    #         actor.GetProperty().SetColor(0.9, 0.9, 0.9)  # Light gray
-
-    #         # Create renderer (offscreen mode)
-    #         renderer = vtk.vtkRenderer()
-    #         renderer.AddActor(actor)
-    #         renderer.SetBackground(1, 1, 1)  # White background
-
-    #         render_window = vtk.vtkRenderWindow()
-    #         render_window.SetOffScreenRendering(1)  # Ensure no window appears
-    #         render_window.AddRenderer(renderer)
-    #         render_window.SetSize(800, 600)  # Resolution
-
-    #         render_window.Render()
-
-    #         # Capture as PNG
-    #         window_to_image = vtk.vtkWindowToImageFilter()
-    #         window_to_image.SetInput(render_window)
-    #         window_to_image.SetScale(2)  # High resolution
-    #         window_to_image.SetInputBufferTypeToRGBA()
-    #         window_to_image.Update()
-
-    #         writer = vtk.vtkPNGWriter()
-    #         writer.SetFileName(preview_path)
-    #         writer.SetInputConnection(window_to_image.GetOutputPort())
-    #         writer.Write()
-
-    #         return preview_path
-
-        # except Exception as e:
-        #     self.logger.log_error(f"Error generating STL preview: {e}")
-        #     return None
-
-
-        # except Exception as e:
-        #     self.logger.log_error(f"Error generating STL preview: {e}")
-        #     return None
+        except Exception as e:
+            self.update_progress(f"Error: {str(e)}", 0)
+            raise
 
     def generate_stl_preview(self, stl_path):  #Comment for full functionality tk
         """
@@ -468,45 +358,44 @@ class AirwayProcessor:
         """
         try:
 
-            # preview_path = str(Path(stl_path).with_suffix(".png"))
-            preview_path = "/home/amatos/Desktop/amatos/Ilyass Idrissi Boutaybi/OSA/stl/IIB_2019-12-20_pred.png"
+            preview_path = str(Path(stl_path).with_suffix(".png"))
 
-            # # Read STL file
-            # reader = vtk.vtkSTLReader()
-            # reader.SetFileName(stl_path)
+            # Read STL file
+            reader = vtk.vtkSTLReader()
+            reader.SetFileName(stl_path)
 
-            # # Create mapper
-            # mapper = vtk.vtkPolyDataMapper()
-            # mapper.SetInputConnection(reader.GetOutputPort())
+            # Create mapper
+            mapper = vtk.vtkPolyDataMapper()
+            mapper.SetInputConnection(reader.GetOutputPort())
 
-            # # Create actor
-            # actor = vtk.vtkActor()
-            # actor.SetMapper(mapper)
-            # actor.GetProperty().SetColor(0.9, 0.9, 0.9)  # Light gray
+            # Create actor
+            actor = vtk.vtkActor()
+            actor.SetMapper(mapper)
+            actor.GetProperty().SetColor(0.9, 0.9, 0.9)  # Light gray
 
-            # # Create renderer (offscreen mode)
-            # renderer = vtk.vtkRenderer()
-            # renderer.AddActor(actor)
-            # renderer.SetBackground(1, 1, 1)  # White background
+            # Create renderer (offscreen mode)
+            renderer = vtk.vtkRenderer()
+            renderer.AddActor(actor)
+            renderer.SetBackground(1, 1, 1)  # White background
 
-            # render_window = vtk.vtkRenderWindow()
-            # render_window.SetOffScreenRendering(1)  # Ensure no window appears
-            # render_window.AddRenderer(renderer)
-            # render_window.SetSize(800, 600)  # Resolution
+            render_window = vtk.vtkRenderWindow()
+            render_window.SetOffScreenRendering(1)  # Ensure no window appears
+            render_window.AddRenderer(renderer)
+            render_window.SetSize(800, 600)  # Resolution
 
-            # render_window.Render()
+            render_window.Render()
 
-            # # Capture as PNG
-            # window_to_image = vtk.vtkWindowToImageFilter()
-            # window_to_image.SetInput(render_window)
-            # window_to_image.SetScale(2)  # High resolution
-            # window_to_image.SetInputBufferTypeToRGBA()
-            # window_to_image.Update()
+            # Capture as PNG
+            window_to_image = vtk.vtkWindowToImageFilter()
+            window_to_image.SetInput(render_window)
+            window_to_image.SetScale(2)  # High resolution
+            window_to_image.SetInputBufferTypeToRGBA()
+            window_to_image.Update()
 
-            # writer = vtk.vtkPNGWriter()
-            # writer.SetFileName(preview_path)
-            # writer.SetInputConnection(window_to_image.GetOutputPort())
-            # writer.Write()
+            writer = vtk.vtkPNGWriter()
+            writer.SetFileName(preview_path)
+            writer.SetInputConnection(window_to_image.GetOutputPort())
+            writer.Write()
 
             # self.update_progress("generating preview of model", 80)
 

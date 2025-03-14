@@ -35,7 +35,8 @@ class Tab1Manager:
 
         try:
             # Path to the GIF file
-            gif_path = r"C:\Users\aleja\Desktop\Geometries\Airway-ML-CFD-Linux\Ortho_App\gui\components\Images\ualberta.gif"
+            # gif_path = r"C:\Users\aleja\Desktop\Geometries\Airway-ML-CFD-Linux\Ortho_App\gui\components\Images\ualberta.gif"
+            gif_path = "/home/cfduser/Desktop/CFD_GUI/Airway-ML-CFD-Linux/Ortho_App/gui/components/Images/ualberta.gif"
             
             # Create a standard Tkinter label (not CTkLabel) for the animated GIF
             self.gif_frames = []
@@ -210,6 +211,17 @@ class Tab1Manager:
             self.logger.log_error(error_message)
             tk.messagebox.showerror("Error", "Username must contain only letters and numbers.")
             return False
+        
+        # Define user folder path
+        user_folder = os.path.join("/home/cfduser/Desktop/CFD_GUI/User_Data", username)
+        
+        try:
+            os.makedirs(user_folder, exist_ok=True)  # Create folder if it doesn’t exist
+            self.logger.log_info(f"User folder created: {user_folder}")
+        except Exception as e:
+            self.logger.log_error(f"Failed to create user folder: {e}")
+            tk.messagebox.showerror("Error", f"Could not create user folder: {e}")
+            return False    
         
         self._stop_animation()
         self.logger.log_info(f"User logged in: {username}")

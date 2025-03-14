@@ -1,0 +1,190 @@
+/*--------------------------------*- C++ -*----------------------------------*\
+| =========                 |                                                 |
+| \\      /  F ield         | OpenFOAM: The Open Source CFD Toolbox           |
+|  \\    /   O peration     | Version:  v2306                                 |
+|   \\  /    A nd           | Website:  www.openfoam.com                      |
+|    \\/     M anipulation  |                                                 |
+\*---------------------------------------------------------------------------*/
+FoamFile
+{
+    version     2.0;
+    format      ascii;
+    class       dictionary;
+    object      controlDict;
+}
+// * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
+
+application     simpleFoam;
+
+startFrom       startTime;
+
+startTime       0;
+
+stopAt          endTime;
+
+endTime         500;
+
+deltaT          1;
+
+writeControl    timeStep;
+
+writeInterval   1;
+
+purgeWrite      1; // It will keep the last xx saved solutions
+
+writeFormat     binary;
+
+writePrecision  6; // It will save the solution in ascii format (writeFormat) with a precision of 8 digits (writePrecision)
+
+writeCompression off;
+
+timeFormat      general;
+
+timePrecision   6;
+
+runTimeModifiable true; // And as the option runTimeModifiable is on (true), we can modify all these entries while we are running the simulation.
+
+functions
+{
+    #includeFunc "residuals"
+    //#includeFunc "surfaces"
+
+    yPlus1
+    {
+        // Mandatory entries (unmodifiable)
+        type            yPlus;
+        libs            (fieldFunctionObjects);
+        patches         (wall);
+        timeStart       0;
+        timeEnd         100;
+        writeControl    timeStep;
+        writeInterval   1;
+        writeToFile     true;
+        executeControl  timeStep;
+        executeInterval 1;
+        // Optional (inherited) entries
+        //writeFields     yes;
+        //writePrecision  6;
+        //useUserTime     true;
+        //enabled         true;
+        //log             true;
+    }
+
+    avgsurf_in
+    {
+        type            surfaceFieldValue;
+        libs            (fieldFunctionObjects);
+        log             on;
+        enabled         true;
+        writeControl    timeStep;
+        writeInterval   100;
+        writeFields     false;
+        surfaceFormat   vtk;
+        writeArea       false;
+        regionType      sampledSurface;
+        name            avgsurf1;
+        sampledSurfaceDict
+           {
+              type        plane;
+              point       (0.035 0.014 0.098); //in
+              normal      (0 1 0);
+           }
+        operation       areaAverage;
+        postOperation   none; //mag;
+        fields
+        (
+	      p
+	      U
+        );
+    }
+    avgsurf_out
+    {
+        type            surfaceFieldValue;
+        libs            (fieldFunctionObjects);
+        log             on;
+        enabled         true;
+        writeControl    timeStep;
+        writeInterval   100;
+        writeFields     false;
+        writeArea       false;
+        surfaceFormat   vtk;
+        regionType      sampledSurface;
+        name            avgsurf2;
+        sampledSurfaceDict
+           {
+              type       plane;
+              point     (0.042 0.09 0.005); //out
+              normal    (0 0 1);
+           }
+        operation       areaAverage;
+        postOperation   none;
+        fields
+        (
+	      p
+	      U
+        );
+    }
+
+    probes
+    {
+    type    probes;
+    libs    (sampling);
+    name    probes;
+    writeControl   timeStep;
+    writeInterval  100;
+    fields
+    (
+        p
+        U
+    );
+    probeLocations
+    (
+        (0.035 0.014 0.098) //in
+        (0.045 0.014 0.098) //in
+        (0.042 0.09 0.005) //out
+    );
+    }
+
+    avgInlets
+    {
+        type            surfaceFieldValue;
+        libs            (fieldFunctionObjects);
+        enabled         yes;
+        writeControl    timeStep;
+        writeInterval   100;
+        log             yes;
+        writeFields     off;
+        regionType      patch;
+        name            inlet;
+        operation       weightedAverage;
+        weightField     phi;
+        fields
+        (
+            U
+            p
+        );
+    }
+
+    avgOutlets
+    {
+        type            surfaceFieldValue;
+        libs            (fieldFunctionObjects);
+        writeControl    timeStep;
+        writeInterval   100;
+        log             yes;
+        writeFields     no;
+        regionType      patch;
+        name            outlet;
+        operation       weightedAverage;
+        weightField     phi;
+
+        fields
+        (
+            U
+            p
+        );
+    }
+}
+
+// ************************************************************************* //
+

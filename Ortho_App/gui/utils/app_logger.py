@@ -22,7 +22,8 @@ class AppLogger:
             os.makedirs(log_dir, exist_ok=True)
 
             # Create logger
-            self.logger = logging.getLogger('OrthoCFD')
+            self.logger = logging.getLogger()
+            self.logger.propagate = False
             
             # Clear any existing handlers
             self.logger.handlers.clear()

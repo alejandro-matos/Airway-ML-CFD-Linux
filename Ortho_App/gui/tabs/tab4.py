@@ -855,167 +855,96 @@ class Tab4Manager:
                 
             self._start_processing()
 
-    # def _start_processing(self): # Uncomment for full functionality later tk
-    #     """Start the processing sequence"""
-    #     try:
-    #         # Check if DICOM folder is set
-    #         if not hasattr(self.app, 'selected_dicom_folder'):
-    #             messagebox.showerror(
-    #                 "Error",
-    #                 "No DICOM folder selected. Please return to the patient information page and select a DICOM folder."
-    #             )
-    #             return
-
-    #         # Check if DICOM folder exists
-    #         if not os.path.exists(self.app.selected_dicom_folder):
-    #             messagebox.showerror(
-    #                 "Error",
-    #                 f"Selected DICOM folder does not exist: {self.app.selected_dicom_folder}"
-    #             )
-    #             return
-
-    #         # Ensure output folder exists
-    #         os.makedirs(self.app.full_folder_path, exist_ok=True)
-            
-    #         self.processing_active = True
-    #         self.process_button.configure(state="disabled")
-            
-    #         def progress_callback(message, percentage, output_line=None):
-    #             """Update progress bar and message"""
-    #             # Use after() to ensure thread safety when updating GUI
-    #             self.app.after(0, lambda: self.progress_section.update_progress(
-    #                 percentage,
-    #                 message=message,
-    #                 output_line=output_line
-    #             ))
-            
-    #         # Initialize processor
-    #         processor = AirwayProcessor(
-    #             input_folder=self.app.selected_dicom_folder,
-    #             output_folder=self.app.full_folder_path,
-    #             callback=progress_callback
-    #         )
-            
-    #         # Set up cancel callback
-    #         def cancel_processing():
-    #             """Cancel the processing and stop the progress bar"""
-    #             if processor.cancel_processing():
-    #                 # Ensure the progress bar animation is stopped
-    #                 self.app.after(0, lambda: self.progress_section.stop("Processing Cancelled"))
-    #                 # Reset the processing flag
-    #                 self.processing_active = False
-    #                 # Enable the Start button again
-    #                 self.process_button.configure(state="normal")
-                    
-    #         self.progress_section.set_cancel_callback(cancel_processing)
-            
-    #         def process_thread():
-    #             try:
-    #                 # Clear previous output
-    #                 self.app.after(0, self.progress_section.clear_output)
-                    
-    #                 # Start with indeterminate mode during initialization
-    #                 self.app.after(0, lambda: self.progress_section.start(
-    #                     "Initializing processing...",
-    #                     indeterminate=True
-    #                 ))
-                    
-    #                 # Run the processing
-    #                 results = processor.process()
-                    
-    #                 # Schedule completion handling in main thread
-    #                 self.app.after(0, lambda: self._handle_processing_completion(True, results))
-                    
-    #             except Exception as exc:
-    #                 # Store the exception message for the lambda
-    #                 error_message = str(exc)
-    #                 self.app.after(0, lambda: self._handle_processing_completion(False, error_message))
-                
-    #             finally:
-    #                 # Reset cancel callback
-    #                 self.app.after(0, lambda: self.progress_section.set_cancel_callback(None))
-            
-    #         # Start processing thread
-    #         thread = threading.Thread(target=process_thread)
-    #         thread.daemon = True  # Thread will be terminated when main program exits
-    #         thread.start()
-            
-    #     except Exception as e:
-    #         self.processing_active = False
-    #         self.process_button.configure(state="normal")
-    #         messagebox.showerror("Error", f"Failed to start processing:\n{str(e)}")
-
     def _start_processing(self):
-        """Simulate processing with staged updates, logs, and dynamic UI updates."""
+        """Start the processing sequence"""
         try:
-            # Check if the selected flow rate already has a directory
-            target_cfd_path = self._get_full_cfd_path()
-            
-            # If the directory doesn't exist, copy from an existing directory
-            if not os.path.exists(target_cfd_path):
-                # Use a known existing directory as the source
-                source_cfd_path = r"C:\Users\aleja\Desktop\amatos\Qadra Hussein\Test\CFD_40_0"
-                
-                if os.path.exists(source_cfd_path):
-                    # Create the target directory
-                    os.makedirs(target_cfd_path, exist_ok=True)
-                    
-                    # Copy all files from source to target directory
-                    import shutil
-                    for item in os.listdir(source_cfd_path):
-                        s = os.path.join(source_cfd_path, item)
-                        d = os.path.join(target_cfd_path, item)
-                        
-                        if os.path.isdir(s):
-                            shutil.copytree(s, d, dirs_exist_ok=True)
-                        else:
-                            shutil.copy2(s, d)
-                            
-                    # Log the copy operation
-                    self.logger.log_info(f"Copied existing results to new directory for flow rate {self.flow_rate.get():.1f} LPM")
+            # Check if DICOM folder is set
+            if not hasattr(self.app, 'selected_dicom_folder'):
+                messagebox.showerror(
+                    "Error",
+                    "No DICOM folder selected. Please return to the patient information page and select a DICOM folder."
+                )
+                return
+
+            # Check if DICOM folder exists
+            if not os.path.exists(self.app.selected_dicom_folder):
+                messagebox.showerror(
+                    "Error",
+                    f"Selected DICOM folder does not exist: {self.app.selected_dicom_folder}"
+                )
+                return
+
+            # Ensure output folder exists
+            os.makedirs(self.app.full_folder_path, exist_ok=True)
             
             self.processing_active = True
             self.process_button.configure(state="disabled")
             
-            # Set up cancel callback before starting the progress bar
+            def progress_callback(message, percentage, output_line=None):
+                """Update progress bar and message"""
+                # Use after() to ensure thread safety when updating GUI
+                self.app.after(0, lambda: self.progress_section.update_progress(
+                    percentage,
+                    message=message,
+                    output_line=output_line
+                ))
+            
+            # Initialize processor
+            processor = AirwayProcessor(
+                input_folder=self.app.selected_dicom_folder,
+                output_folder=self.app.full_folder_path,
+                callback=progress_callback
+            )
+            
+            # Set up cancel callback
             def cancel_processing():
                 """Cancel the processing and stop the progress bar"""
-                # Set flag to indicate processing is cancelled
-                self.processing_active = False
-                # Enable the Start button again
-                self.process_button.configure(state="normal")
-                # Stop the progress bar
-                self.progress_section.stop("Processing Cancelled")
-                # Clear any scheduled updates
-                for after_id in self.scheduled_updates:
-                    self.app.after_cancel(after_id)
-                self.scheduled_updates = []
+                self.cancel_requested = True
+                if processor.cancel_processing():
+                    # Ensure the progress bar animation is stopped
+                    self.app.after(0, lambda: self.progress_section.stop("Processing Cancelled"))
+                    # Reset the processing flag
+                    self.processing_active = False
+                    # Enable the Start button again
+                    self.process_button.configure(state="normal")
                     
-            # Initialize list to track scheduled updates
-            self.scheduled_updates = []
-            
-            # Set the cancel callback
             self.progress_section.set_cancel_callback(cancel_processing)
             
-            # Start the progress bar with indeterminate mode
-            self.progress_section.start("Initializing processing...", indeterminate=True)
-
-            analysis_type = self.analysis_option.get()
-
-            # Schedule all update steps and track their IDs
-            self.scheduled_updates.append(
-                self.app.after(2000, lambda: self._update_processing_stage(10, "Converting DICOM to NIfTI..."))
-            )
+            def process_thread():
+                try:
+                    # Clear previous output
+                    self.app.after(0, self.progress_section.clear_output)
+                    
+                    # Start with indeterminate mode during initialization
+                    self.app.after(0, lambda: self.progress_section.start(
+                        "Initializing processing...",
+                        indeterminate=True
+                    ))
+                    
+                    # Run the processing
+                    results = processor.process()
+                    
+                    # Schedule completion handling in main thread
+                    self.app.after(0, lambda: self._handle_processing_completion(True, results))
+                    
+                except Exception as exc:
+                    # Store the exception message for the lambda
+                    error_message = str(exc)
+                    self.app.after(0, lambda: self._handle_processing_completion(False, error_message))
+                
+                finally:
+                    # Reset cancel callback
+                    self.app.after(0, lambda: self.progress_section.set_cancel_callback(None))
             
-            # Start displaying log messages
-            self.scheduled_updates.append(
-                self.app.after(5000, self._display_log_messages)
-            )
-
+            # Start processing thread
+            thread = threading.Thread(target=process_thread)
+            thread.daemon = True  # Thread will be terminated when main program exits
+            thread.start()
+            
         except Exception as e:
-            messagebox.showerror("Error", f"Failed to process:\n{str(e)}")
             self.processing_active = False
             self.process_button.configure(state="normal")
+            messagebox.showerror("Error", f"Failed to start processing:\n{str(e)}")
 
     def _display_log_messages(self, line_index=0):
         """Display log messages line by line from the prediction log file."""
@@ -1025,7 +954,7 @@ class Tab4Manager:
             return
             
         # log_file_path = "/home/amatos/Desktop/amatos/Ilyass Idrissi Boutaybi/OSA/prediction/pred_log.txt" # linux path tk
-        log_file_path = r"C:\Users\aleja\Desktop\amatos\Qadra Hussein\Test\prediction\pred_log.txt"
+        log_file_path = "/home/cfduser/Desktop/CFD_GUI/User_Data/amatos/Qadra Hussein/Test/prediction/pred_log.txt"
 
         try:
             # with open(log_file_path, "r") as log_file:  # Works with linux tk
@@ -1092,7 +1021,7 @@ class Tab4Manager:
         self.scheduled_updates.append(
             self.app.after(7000, lambda: self._update_render_display_if_not_cancelled(
                 "segmentation",
-                r"C:\Users\aleja\Desktop\amatos\Qadra Hussein\Test\stl\IIB_2019-12-20_pred.png"
+                "/home/cfduser/Desktop/CFD_GUI/User_Data/amatos/Qadra Hussein/Test/stl/IIB_2019-12-20_pred.png"
             ))
         )
 
@@ -1121,7 +1050,8 @@ class Tab4Manager:
         )
         
         # Use dynamic path with flow rate for postprocessing image
-        postprocessed_img_path = r"C:\Users\aleja\Desktop\amatos\Qadra Hussein\Test_1\Test Run\IIB_2019-12-20_assem.png"
+        # postprocessed_img_path = r"C:\Users\aleja\Desktop\amatos\Qadra Hussein\Test_1\Test Run\IIB_2019-12-20_assem.png"
+        postprocessed_img_path = "/home/cfduser/Desktop/CFD_GUI/User_Data/amatos/Qadra Hussein/Test_1/Test Run/IIB_2019-12-20_assem.png"
         self.scheduled_updates.append(
             self.app.after(13000, lambda: self._update_render_display_if_not_cancelled(
                 "postprocessing",
@@ -1148,7 +1078,7 @@ class Tab4Manager:
         
         # Use dynamic path for CFD image
         # cfd_img_path = os.path.join(self._get_full_cfd_path(), "IIB_2019-12-20_CFD.png") # replae when simulation works tk
-        cfd_img_path = r"C:\Users\aleja\Desktop\amatos\Qadra Hussein\Test_1\Test Run\IIB_2019-12-20_CFD.png"
+        cfd_img_path = "/home/cfduser/Desktop/CFD_GUI/User_Data/amatos/Qadra Hussein/Test_1/Test Run/IIB_2019-12-20_CFD.png"
         self.scheduled_updates.append(
             self.app.after(20000, lambda: self._update_render_display_if_not_cancelled(
                 "cfd",
@@ -1212,7 +1142,8 @@ class Tab4Manager:
         self.app.update_idletasks()  # Force UI update before rendering tabs
         
         # Segmentation tab
-        segmentation_path = r"C:\Users\aleja\Desktop\amatos\Qadra Hussein\Test\stl\IIB_2019-12-20_pred.png"
+        # segmentation_path = r"C:\Users\aleja\Desktop\amatos\Qadra Hussein\Test\stl\IIB_2019-12-20_pred.png" # Windows tktk
+        segmentation_path = "/home/cfduser/Desktop/CFD_GUI/User_Data/amatos/Qadra Hussein/Test/stl/IIB_2019-12-20_pred.png"
         self._update_render_display("segmentation", segmentation_path)
         
         # If simulation was selected, populate other tabs
@@ -1222,12 +1153,12 @@ class Tab4Manager:
             
             # Post-processed tab
             # postprocessed_path = os.path.join(cfd_base_path, "IIB_2019-12-20_assem.png") # Change when legit tk
-            postprocessed_path = r"C:\Users\aleja\Desktop\amatos\Qadra Hussein\Test_1\Test Run\IIB_2019-12-20_assem.png"
+            postprocessed_path = "/home/cfduser/Desktop/CFD_GUI/User_Data/amatos/Qadra Hussein/Test_1/Test Run/IIB_2019-12-20_assem.png"
             self._update_render_display("postprocessing", postprocessed_path)
             
             # CFD tab
             # cfd_path = os.path.join(cfd_base_path, "IIB_2019-12-20_CFD.png") tk
-            cfd_path = r"C:\Users\aleja\Desktop\amatos\Qadra Hussein\Test_1\Test Run\IIB_2019-12-20_CFD.png"
+            cfd_path = "/home/cfduser/Desktop/CFD_GUI/User_Data/amatos/Qadra Hussein/Test_1/Test Run/IIB_2019-12-20_CFD.png"
             self._update_render_display("cfd", cfd_path)
             
             # Select CFD tab as it's the final result
@@ -1269,7 +1200,7 @@ class Tab4Manager:
         self.scheduled_updates.append(
             self.app.after(7000, lambda: self._update_render_display_if_not_cancelled(
                 "segmentation",
-                r"C:\Users\aleja\Desktop\amatos\Qadra Hussein\Test\stl\IIB_2019-12-20_pred.png"
+                "/home/cfduser/Desktop/CFD_GUI/User_Data/amatos/Qadra Hussein/Test/stl/IIB_2019-12-20_pred.png"
             ))
         )
 
@@ -1367,6 +1298,11 @@ class Tab4Manager:
                     text_color=UI_SETTINGS["COLORS"]["TEXT_DARK"]
                 ).pack(pady=(0, 5))
                 
+                # Store the path for the STL file to be viewed
+                if stage == "segmentation":
+                    # Try to derive the STL path from the image path
+                    self.current_stl_path = str(Path(image_path).with_suffix(".stl"))
+                
             except Exception as e:
                 error_msg = f"Error loading image: {str(e)}"
                 ctk.CTkLabel(image_container, text=error_msg, font=("Arial", 12)).pack(expand=True)
@@ -1384,8 +1320,7 @@ class Tab4Manager:
             segmentation_button = ctk.CTkButton(
                 button_frame,
                 text="🔄 Open Airway Prediction Model in 3D Viewer",
-                command=lambda: self._display_interactive_stl(
-                    r"C:\Users\aleja\Desktop\amatos\Qadra Hussein\Test\stl\P5T1.stl"),
+                command=lambda: self._display_interactive_stl(self.current_stl_path if hasattr(self, 'current_stl_path') else None),
                 width=350,
                 height=40,
                 font=UI_SETTINGS["FONTS"]["BUTTON_TEXT"],
@@ -1429,73 +1364,60 @@ class Tab4Manager:
         # Select the tab to show the content if needed
         self._select_tab(tab_name)
 
-    # def _handle_processing_completion(self, success, results):  # Uncomment for full functionality tk
-    #     """Handle completion of processing"""
-    #     self.processing_active = False
-    #     self.process_button.configure(state="normal")
-
-    #     if success:
-    #         self.progress_section.stop("Processing Complete!")
-
-    #         # Show success message with results
-
-    #         message = (
-    #             f"Processing completed successfully!\n\n"
-    #             f"Airway Volume: {results['volume']:.2f} mm³\n\n"
-    #             f"Files created:\n"
-    #             f"- NIfTI: {Path(results['nifti_path']).name}\n"
-    #             f"- Prediction: {Path(results['prediction_path']).name}\n"
-    #             f"- STL: {Path(results['stl_path']).name}"
-    #         )
-    #         messagebox.showinfo("Success", message)
-
-    #         # Show results section
-    #         self.results_frame.pack(fill="x", pady=10)
-
-    #         # Show render in display
-    #         if os.path.exists(results['preview_path']):
-    #             self._display_segmentation_image(results['preview_path'])
-
-    #         # Show the Next button
-    #         self._show_next_button()
-
-    #         # If airflow simulation was selected, proceed with CFD
-    #         if self.analysis_option.get() == "Airflow Simulation (includes segmentation)":
-    #             if messagebox.askyesno(
-    #                 "Continue to CFD",
-    #                 "Would you like to proceed with CFD analysis?"
-    #             ):
-    #                 self._start_cfd_simulation(results['stl_path'])
-                
-    #             # Still need to properly place these so they appear as the things work
-    #             self._update_render_display("postprocessing", "path/to/postprocessing_preview.png")
-    #             self._update_render_display("cfd", "path/to/cfd_preview.png")
-    #     else:
-    #         messagebox.showerror(
-    #             "Error",
-    #             f"Processing failed:\n{results}"  # Results contain error message in this case
-    #         )
-
     def _handle_processing_completion(self, success, results):
-        """Directly handle displaying the pre-existing STL preview."""
+        """Handle completion of processing"""
         self.processing_active = False
         self.process_button.configure(state="normal")
 
         if success:
             self.progress_section.stop("Processing Complete!")
-            # Ensure Results section fully expands
-            self.results_frame.pack(fill="both", expand=True, pady=(5, 5))  # Reduce padding
 
-            # Display segmentation preview image
-            preview_path = results.get('preview_path')
-            if preview_path and os.path.exists(preview_path):
-                self._display_segmentation_image(preview_path)
-                # The display_stl button is now created inside _display_segmentation_image
-                # No need to reference it here
+            # Store the airway volume for use in reports
+            self.airway_volume = results['volume']
+
+            # Show success message with results
+            message = (
+                f"Processing completed successfully!\n\n"
+                f"Airway Volume: {results['volume']:.2f} mm³\n\n"
+                f"Files created:\n"
+                f"- NIfTI: {Path(results['nifti_path']).name}\n"
+                f"- Prediction: {Path(results['prediction_path']).name}\n"
+                f"- STL: {Path(results['stl_path']['stl_path']).name}"
+            )
+            messagebox.showinfo("Success", message)
+
+            # Show results section
+            self.results_frame.pack(fill="both", expand=True, pady=(5, 5))
+
+            # Show render in display section
+            if 'preview_path' in results['stl_path'] and os.path.exists(results['stl_path']['preview_path']):
+                self._update_render_display("segmentation", results['stl_path']['preview_path'])
             else:
-                messagebox.showerror("Error", "Segmentation preview image not found!")
+                messagebox.showwarning("Warning", "Preview image not found. Using default visualization.")
+                self._update_render_display("segmentation", None)
+
+            # Enable the Preview and Export buttons
+            self.preview_button.configure(state="normal")
+            self.export_button.configure(state="normal")
+
+            # If airflow simulation was selected, proceed with CFD (keep your current approach for simulation)
+            if "Simulation" in self.analysis_option.get():
+                response = messagebox.askquestion(
+                    "Continue to CFD",
+                    "Would you like to proceed with CFD analysis?"
+                )
+                if response == "yes":
+                    # Start the second phase of processing for CFD
+                    self._schedule_simulation_steps()
         else:
-            messagebox.showerror("Error", "Processing failed. Could not load segmentation preview.")
+            # Display error message
+            error_message = results if isinstance(results, str) else "Unknown error occurred"
+            messagebox.showerror(
+                "Error",
+                f"Processing failed:\n{error_message}"
+            )
+            # Log the error
+            self.logger.log_error(f"Processing failed: {error_message}")
 
     def _display_segmentation_image(self, image_path):
         """Just call the unified update method for consistency"""
@@ -1629,7 +1551,7 @@ class Tab4Manager:
         try:
             def view_components():
                 # Base path for components
-                base_path = r"C:\Users\aleja\Desktop\amatos\Qadra Hussein\Test\stl"
+                base_path = "/home/cfduser/Desktop/CFD_GUI/User_Data/amatos/Qadra Hussein/Test/stl"
                 
                 # Load inlet (green)
                 inlet_path = os.path.join(base_path, "inlet.stl")
@@ -1707,17 +1629,17 @@ class Tab4Manager:
             threading.Thread(target=view_mesh, daemon=True).start()
         
             def view_mesh2():
-                inlet_path = r"C:\Users\aleja\Desktop\amatos\Qadra Hussein\Test\stl\inlet.stl"
+                inlet_path = "/home/cfduser/Desktop/CFD_GUI/User_Data/amatos/Qadra Hussein/Test/stl/inlet.stl"
                 inlet_mesh = o3d.io.read_triangle_mesh(inlet_path)
                 inlet_mesh.compute_vertex_normals()
                 inlet_mesh.paint_uniform_color([0, 1, 0])  # Green
 
-                outlet_path = r"C:\Users\aleja\Desktop\amatos\Qadra Hussein\Test\stl\outlet.stl"
+                outlet_path = "/home/cfduser/Desktop/CFD_GUI/User_Data/amatos/Qadra Hussein/Test/stl/outlet.stl"
                 outlet_mesh = o3d.io.read_triangle_mesh(outlet_path)
                 outlet_mesh.compute_vertex_normals()
                 outlet_mesh.paint_uniform_color([1, 0, 0])  # Red
 
-                wall_path = r"C:\Users\aleja\Desktop\amatos\Qadra Hussein\Test\stl\wall.stl"
+                wall_path = "/home/cfduser/Desktop/CFD_GUI/User_Data/amatos/Qadra Hussein/Test/stl/wall.stl"
                 wall_mesh = o3d.io.read_triangle_mesh(wall_path)
                 wall_mesh.compute_vertex_normals()
                 wall_mesh.paint_uniform_color([0.7, 0.7, 0.7])  # Gray
@@ -1735,7 +1657,7 @@ class Tab4Manager:
             
             # Use predetermined path with flow rate in the filename
             # Get directory path based on flow rate
-            output_dir = os.path.join(r"C:\Users\aleja\Desktop\amatos\Qadra Hussein\Test", f"CFD_{flow_str}")
+            output_dir = os.path.join("/home/cfduser/Desktop/CFD_GUI/User_Data/amatos/Qadra Hussein/Test", f"CFD_{flow_str}")
             os.makedirs(output_dir, exist_ok=True)  # Create directory if it doesn't exist
             
             # Construct the full path for the PDF file
@@ -1814,7 +1736,7 @@ class Tab4Manager:
         cfd_dir = self._get_cfd_dir_name(flow_rate)
         
         # Base path where CFD results are stored
-        base_path = r"C:\Users\aleja\Desktop\amatos\Qadra Hussein\Test"
+        base_path = "/home/cfduser/Desktop/CFD_GUI/User_Data/amatos/Qadra Hussein/Test/"
         
         return os.path.join(base_path, cfd_dir)
 
@@ -1846,7 +1768,7 @@ class Tab4Manager:
                 # Fallback if the specific mesh file doesn't exist
                 if not os.path.exists(mesh_path):
                     # Use the wall mesh as a fallback
-                    mesh_path = r"C:\Users\aleja\Desktop\amatos\Qadra Hussein\Test\stl\wall.stl"
+                    mesh_path = "/home/cfduser/Desktop/CFD_GUI/User_Data/amatos/Qadra Hussein/Test/stl/wall.stl"
                 
                 mesh = o3d.io.read_triangle_mesh(mesh_path)
                 mesh.compute_vertex_normals()
@@ -1979,8 +1901,8 @@ class Tab4Manager:
             y_position -= 45
 
             # Add segmentation images side by side
-            segmentation_img = r"C:\Users\aleja\Desktop\amatos\Qadra Hussein\Test\stl\IIB_2019-12-20_pred.png"
-            processed_img = r"C:\Users\aleja\Desktop\amatos\Qadra Hussein\Test_1\Test Run\IIB_2019-12-20_assem.png"
+            segmentation_img = "/home/cfduser/Desktop/CFD_GUI/User_Data/amatos/Qadra Hussein/Test/stl/IIB_2019-12-20_pred.png"
+            processed_img = "/home/cfduser/Desktop/CFD_GUI/User_Data/amatos/Qadra Hussein/Test_1/Test Run/IIB_2019-12-20_assem.png"
 
             if os.path.exists(segmentation_img) and os.path.exists(processed_img):
                 # Calculate center positions for better horizontal alignment
@@ -2008,7 +1930,7 @@ class Tab4Manager:
             y_position -= 10
 
             # Add CFD Simulation Image - centered and moved up
-            cfd_img = r"C:\Users\aleja\Desktop\amatos\Qadra Hussein\Test_1\Test Run\IIB_2019-12-20_CFD.png"
+            cfd_img = "/home/cfduser/Desktop/CFD_GUI/User_Data/amatos/Qadra Hussein/Test_1/Test Run/IIB_2019-12-20_CFD.png"
             if os.path.exists(cfd_img):
                 cfd_x = (width - 200) / 2  # Center the CFD image
                 cfd_y = y_position - 200   # Moved up by increasing value

@@ -1,0 +1,209 @@
+/*--------------------------------*- C++ -*----------------------------------*\
+| =========                 |                                                 |
+| \\      /  F ield         | OpenFOAM: The Open Source CFD Toolbox           |
+|  \\    /   O peration     | Version:  v2306                                 |
+|   \\  /    A nd           | Website:  www.openfoam.com                      |
+|    \\/     M anipulation  |                                                 |
+\*---------------------------------------------------------------------------*/
+FoamFile
+{
+    version     2.0;
+    format      ascii;
+    class       dictionary;
+    object      fvSolution;
+}
+// * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
+
+// Linear solvers are a sets of algorithms to solve the following linear problems in matrix form:
+// Ax=b
+
+// Direct solvers
+// The following algoritms are direct methods, or method based on Gaussian elimination:
+
+    // smoothSolver: Solver that uses a smoother.
+
+// Smooth solvers =
+
+    // GaussSeidel  = Gauss-Seidel.
+    // symGaussSeidel = symmetric Gauss-Seidel.
+    // DIC/DILU  = incomplete-Cholesky (symmetric), incomplete-LU (asymmetric).
+    // DICGaussSeidel  = diagonal incomplete-Cholesky/LU with Gauss-Seidel (symmetric/asymmetric)
+
+// Iterative solver (Minimization algorithms)
+
+    // PCG/PBiC: = Preconditioned (bi-)Conjugate Gradient, with PCG for symmetric matrices, PBiCG for asymmetric matrices.
+    // PBiCGStab = Stabilised preconditioned (bi-)conjugate gradient, for both symmetric and asymmetric matrices.
+    // GAMG = Generalised Geometric-Algebraic Multi-Grid.
+
+// Preconditioners
+
+    // DIC/DILU = diagonal incomplete-Cholesky (symmetric) and incomplete-LU (asymmetric)
+    // FDIC = faster diagonal incomplete-Cholesky (DIC with caching, symmetric)
+    // GAMG = geometric-algebraic multi-grid.
+    // diagonal = diagonal preconditioning, not generally used
+    // none = no preconditioning.
+
+// The solver is said to have found a solution if any one of the following conditions are reached:
+
+    // tolerance = Define the exit criterion for the solver, it is the absolute difference between 2 consecutive iterations and must be low in steady state while coarser in transient simulation. The solver tolerance should represent the level at which the residual is small enough that the solution can be deemed sufficiently accurate. The solver relative tolerance limits the relative improvement from initial to final solution. In transient simulations, it is usual to set the solver relative tolerance to 0 to force the solution to converge to the solver tolerance in each time step. The tolerances, tolerance and relTol must be specified in the dictionaries for all solvers; maxIter is optional. The pressure equation (symmetric matrix) is particularly important, so we should resolve it accurately. Solving the pressure equation is the expensive part of the whole iterative process, For the pressure equation you can start the simulation with a tolerance equal to 1e-6 and relTol equal to 0.01. After a while you change these values to 1e-6 and 0.0, respectively. If the solver is too slow, you can change the convergence criterion to 1e-4 and relTol equal to 0.05. You usually will do this during the first iterations. For the velocity field (U) and the transported quantities (asymmetric matrices), you can use the following criterion. Solving for these variables is relatively inexpensive, so you can start right away with a tight tolerance. When you use the PISO or PIMPLE method, you need to set the tolerance for the pressure final corrector step, that is, pFinal. By proceeding in this way, you can put all the computational effort only in the last corrector step (pFinal). For example, you can use the following solver and tolerance criterion for all the intermediate corrector steps (p), then in the final corrector step (pFinal) you tight the solver tolerance. We recommend to use a tight tolerance for the intermediate and final corrector steps of the pressure linear solvers (p and pFinal).
+
+    // relTol = Define the exit criterion for the solver, on a relative difference of solution from 2 consecutive iteration (i.e. 0.1 is 10%)
+
+    // maxIter = A maximum number of iterations at which the solver is stopped anyway 1000 as default
+
+    // PISO and PIMPLE being used for transient problems and SIMPLE for steady-state.
+
+    // nCorrectors: used by PISO, and PIMPLE, sets the number of times the algorithm solves the pressure equation and momentum corrector in each step; typically set to 2 or 3. Recommended to use at least 3 correctors. It improves accuracy and stability. Use 4 or more for highly transient flows or strongly coupled problems. specifies the number of times the algorithm solves the pressure equation and momentum corrector in each iteration
+    // nCorrector 3;
+
+    // nOuterCorrectors: used by PIMPLE, it enables looping over the entire system of equations within on time step, representing the total number of times the system is solved; must be and is typically set to 1, replicating the PISO algorithm. Recommended value is 1 (equivalent to PISO). Increase to improve the stability of second order time discretization schemes (LES simulations). Increase for strongly coupled problems. specifies the number of times the entire system of equations is solved within one time step
+    // nOuterCorrectors 1;
+
+    // momentumPredictor switch those controls solving of the momentum predictor; typically set to off for some flows, including low Reynolds number and multiphase. Set to yes the momentumPredictor for high Reynolds flows, where convection dominates: enables the momentum predictor stage of the algorithm. Disabling momentum predictor can sometimes increase stability of the simulation.
+    // momentumPredictor yes;
+
+    // Consistent - enables consistent formulation of the SIMPLE algorithm. With this option enabled relaxation factors can be increased which in turn increases the convergence rate.
+
+
+// GAMG = Multigrid solver
+    // The number of sweeps used by the smoother at different levels of mesh density are specified by the nPreSweeps, nPostSweeps and nFinestSweeps keywords. The nPreSweeps entry is used as the algorithm is coarsening the mesh, nPostSweeps is used as the algorithm is refining, and nFinestSweeps is used when the solution is at its finest level.
+    // Pre Sweeps - number of sweeps as the algorithm is coarsening
+    // Post Sweeps - number of sweeps as the algorithm is refining
+    // Finest Sweeps - number of sweeps at finest level
+
+    // Cache Agglomeration - option for enabling caching of the multigrid matrix hierarchy for improved efficiency
+
+    // Agglomerator - algorithm for agglomerating coarse matrix
+
+    // Cells In Coarsest Level - specifies how many equations (cells) should be in the coarsest matrix of the multigrid hierarchy. In practice, GAMG starts with the mesh specified by the user and coarsens/refines the mesh in stages. The user is only required to specify an approximate mesh size at the most coarse level in terms of the number of cells
+// ship simulation case with 5 Mil. Cells.
+//Elapsed Time(in seconds):
+//Solver      256      128        64
+//-------   -------   -------   -------
+//PCG        177.88    425.11    987.52
+//10         953.95   1102.91   1421.36
+//100       1426.52   1441.30   1592.25
+//200       1721.87   1657.35   1706.38
+//400       2043.28   1976.25   1901.76
+//800       2603.98   2530.56   2274.23
+//1600      3235.37   3445.93   2897.09
+//3200      4751.91   4750.79   3962.82
+    // nCoarsestCells 100;
+
+    // Merge Levels - specifies how many standard matrix levels should be merged into the final level (controls the speed of coarsening of the levels). When set to 1 no merging is performed. The mergeLevels keyword controls the speed at which coarsening or refinement levels is performed. It is often best to do so only at one level at a time, i.e. set mergeLevels 1. In some cases, particularly for simple meshes, the solution can be safely speeded up by coarsening/refining two levels at a time, i.e. setting mergeLevels 2.
+
+
+// Most of the times using the GAMG method (geometric-algebraic multi-grid), is the best choice for symmetric matrices (e.g., pressure). The GAMG method should converge fast (less than 100 iterations). If it is taking more iterations, try to change the some of the solver options (pre-sweeps, post-sweeps, agglomeration, and so on) And if it is taking too long or it is unstable, use the PCG solver (Newton-Krylov) with a good preconditioner. The GAMG solver can often be the optimal choice for solving the pressure equation. The GAMG solver is usually used for equations that are hard to converge, which is typically the pressure equation. For most other equations, especially in steady-state simulations, it can be too computationally expensive and other solvers should be used.
+
+// Generally GaussSeidel is the most reliable option, but for bad matrices DIC can offer better convergence. In some cases, additional post-smoothing using GaussSeidel is further beneficial, i.e. the method denoted as DICGaussSeidel
+
+// For asymmetric matrices, the PBiCGStab method with DILU preconditioner is a good choice. The smoothSolver solver with smoother GaussSeidel, also performs very well.  PBiCG for the other quantities - from my experience the smoothSolver is more robust but slower.
+
+//Pressure is a symmetric matrix and velocity is an asymmetric matrix.
+
+solvers
+{
+    p
+    {
+        solver           GAMG;
+        smoother         DICGaussSeidel; //GaussSeidel; //DICGaussSeidel
+        tolerance        1e-06; //1e-07
+        relTol           0.01;
+        minIter          4;
+        maxIter          100;
+        nPreSweeps       1;
+        nPostSweeps      2;
+        //nFinestSweeps    2;
+        cacheAgglomeration on;
+        //scaleCorrection    true;
+        //directSolveCoarsestLevel false;
+        agglomerator       faceAreaPair;
+        nCellsInCoarsestLevel 1000; //sqrt(number of cells)
+        mergeLevels     1;
+        //solver          PCG;
+        //preconditioner  DIC;
+        //tolerance       1e-06;
+        //relTol          0.05;
+    }
+
+    pFinal
+    {
+        $p;
+        relTol          0.0;
+    }
+
+    "(U|k|omega)"
+    {
+        solver          smoothSolver;
+        smoother        symGaussSeidel; //GaussSeidel; //symGaussSeidel
+        tolerance       1e-06;
+        relTol          0.01; //0.1
+        //nSweeps         1;
+        minIter         4;
+        maxIter         100;
+        //solver          PBiCGStab;
+        //preconditioner  DILU;
+        //tolerance       1e-06;
+        //relTol          0.0;
+    }
+
+
+    "(UFinal|kFinal|omegaFinal)"
+    {
+        $U;
+        relTol          0.0;
+    }
+}
+
+SIMPLE // If you are conducting steady simulations, we recommend to use the PISO or PIMPLE method with local-time-stepping (LTS), This method is more stable than the SIMPLE loop for steady solvers.
+{
+    consistent yes; // yes = SIMPLEC, In the SIMPLEC method, the cost per iteration is marginally higher but the convergence rate is better so the number of iterations can be reduced. The SIMPLEC method relaxes the pressure in a consistent manner and additional relaxation of the pressure is not generally necessary. In addition, convergence of the p-U system is better and still is reliable with less aggressive relaxation of the momentum equation.
+
+    nNonOrthogonalCorrectors 2; // orthogonal meshes you can use 0 non-orthogonal corrections. However, it is strongly recommended to do at least 1 non-orthogonal correction (this helps stabilizing the solution)
+
+    residualControl // A value of 1e-5 for energy and 1e-3 for the rest of the variables (U, p, k, omega, etc.) is usually a good choice
+    {
+        p        1e-5;
+        U        1e-5;
+        k        1e-5;
+        omega    1e-5;
+    }
+
+    // Initial residual: e^-4 or e^-5 is a good result. Final residual has to be smaller (e^-8).
+    // Assuming you are solving in steady state, it is because the equations are non-linear. If you solve the momentum equation for U, at the next iteration, P and phi will have been changed. Therefore, the initial residual will be different from the final residual of the last iteration. If you were to solve a linear equation, non-coupled with any other variables, in steady-state, then you would solve it in a single iteration... and therefore your "next initial" residual would be your last final one...
+
+    pRefCell     0;
+    pRefValue    0;
+
+    //nUCorrectors        0;
+    //momentumPredictor   yes;
+}
+
+//the under-relaxation factors are problem dependent. If during the simulation you still have some stability problems, try to reduce all the values to 0.5. It is also recommended to start the simulation with low values (about 0.5), and then increase the values slowly up to 0.7 or 0.9 (for faster convergence). Sometimes, there is not need to under-relax pressure, such as in the case of high-speed aerodynamics (shockwaves). In this case under-relaxing can cause convergence problems.
+relaxationFactors
+{
+    fields // explicit under relaxation
+    {
+        //p             0.3; // = SIMPLE
+        p             0.7;
+        pFinal        0.9;
+
+    }
+    equations // implicit under relaxation
+    {
+        //p               0.8; //0.8,1.0 also gives good convergence value
+        //U               0.7; //0.9 also gives good convergence value
+        U             0.7;
+        UFinal        0.9;
+        k             0.7;
+        omega         0.7;
+    }
+}
+
+//cache
+//{
+//    grad(U);
+//}
+// You don't need to cache any quantity but if it is used several times, its much cheaper to save the first calculation and simply take the results in any other place.
+
+// ************************************************************************* //

@@ -52,7 +52,7 @@ class OrthoCFDApp(ctk.CTk):
         self.minsize(*APP_SETTINGS["MIN_SIZE"])
 
         # Fullscreen with window decorations
-        # self.attributes("-zoomed", True)  # For Linux TK
+        self.attributes("-zoomed", True)  # For Linux TK
 
         self.resizable(True, True)
         ctk.set_appearance_mode("dark")
@@ -64,8 +64,7 @@ class OrthoCFDApp(ctk.CTk):
         """Set up the application icon"""
         try:
             # Load PNG image using PIL
-            # icon_image = Image.open("/home/amatos/Desktop/GUI/Airway-ML-CFD-Linux/Ortho_App/gui/components/Images/CFDLab-blogo2.png") # Linux tk
-            icon_image = Image.open(r"C:\Users\aleja\Desktop\Geometries\Airway-ML-CFD-Linux\Ortho_App\gui\components\Images\CFDLab-blogo2.png")
+            icon_image = Image.open("/home/cfduser/Desktop/CFD_GUI/Airway-ML-CFD-Linux/Ortho_App/gui/components/Images/CFDLab-blogo2.png") # Linux tk
             # Convert to PhotoImage
             photo = ImageTk.PhotoImage(icon_image)
             # Set as icon
@@ -203,7 +202,7 @@ class OrthoCFDApp(ctk.CTk):
     def get_existing_folders(self, username, patient_name):
         """Get list of existing folders for the patient"""
         try:
-            base_path = os.path.expanduser("~\\Desktop")
+            base_path = os.path.expanduser("~/Desktop/CFD_GUI/User_Data/")
             patient_path = os.path.join(base_path, username, patient_name)
             
             if os.path.exists(patient_path):

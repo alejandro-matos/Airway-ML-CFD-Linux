@@ -291,7 +291,7 @@ class Tab2Manager:
             return []
 
         try:
-            patient_path = BASE_PATH / self.app.username_var.get() / self.app.patient_name.get()
+            patient_path = BASE_PATH / "CFD_GUI/User_Data" / self.app.username_var.get() / self.app.patient_name.get()
             
             if patient_path.exists():
                 folders = [
@@ -412,7 +412,7 @@ class Tab2Manager:
         self.app.scandate.set("")
 
     def _setup_output_folder(self):
-        """Set up the output folder path"""
+        """Set up and create the output folder path if all required fields are filled"""
         missing_fields = [
             name for attr_name, name in REQUIRED_FIELDS 
             if not getattr(self.app, attr_name).get()
@@ -428,15 +428,24 @@ class Tab2Manager:
         try:
             folder_path = (
                 BASE_PATH / 
+                "CFD_GUI/User_Data" /
                 self.app.username_var.get() / 
                 self.app.patient_name.get() / 
                 self.app.folder_name_var.get()
             )
+
             self.app.full_folder_path = str(folder_path)
+
+            # **Ensure the directory is created**
+            os.makedirs(self.app.full_folder_path, exist_ok=True)
+
+            self.logger.log_info(f"Created/Verified output folder: {self.app.full_folder_path}")
             return True
         except Exception as e:
             messagebox.showerror("Error", f"Could not set up folder path: {e}")
+            self.logger.log_error(f"Folder creation error: {e}")
             return False
+
 
     def _validate_and_proceed(self):
         """Validate the form and proceed to next tab"""

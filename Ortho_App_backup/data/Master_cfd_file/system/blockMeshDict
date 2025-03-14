@@ -1,0 +1,46 @@
+/*--------------------------------*- C++ -*----------------------------------*\
+| =========                 |                                                 |
+| \\      /  F ield         | OpenFOAM: The Open Source CFD Toolbox           |
+|  \\    /   O peration     | Version:  v2012                                 |
+|   \\  /    A nd           | Website:  www.openfoam.com                      |
+|    \\/     M anipulation  |                                                 |
+\*---------------------------------------------------------------------------*/
+FoamFile
+{
+    version     2.0;
+    format      ascii;
+    class       dictionary;
+    object      blockMeshDict;
+}
+
+// * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
+
+scale   0.001;
+
+vertices
+(
+    (-20 -20 -20) // Vetrex0
+    (150 -20 -20) // Vetrex1
+    (150 150 -20) // Vetrex2
+    (-20 150 -20) // Vetrex3
+    (-20 -20 150) // Vetrex0
+    (150 -20 150) // Vetrex1
+    (150 150 150) // Vetrex2
+    (-20 150 150) // Vetrex3
+);
+
+blocks
+(
+    hex (0 1 2 3 4 5 6 7) (143 143 143) simpleGrading (1 1 1)
+);
+
+edges
+(
+);
+
+boundary
+(
+
+);
+
+// ************************************************************************* //

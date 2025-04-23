@@ -31,15 +31,14 @@ If you use {AppName} for your work, please cite:
 ### Required Software
 - Python 3.11
 - Blender 2.82
-- OpenFOAM 2306
-- ParaView 5.12
+- OpenFOAM 2412
+- ParaView 5.13
 - nnUNetv2 
 
 ### Hardware Specifications
 <!-- TODO: Specify hardware recommendations -->
-- Recommended RAM: [TK recommended RAM]
-- Processor: [TK processor details]
-- GPU: [TK GPU requirements]
+- Recommended RAM: 32 GB or more
+- GPU: NVIDIA GPU with 4 GB or more
 
 ## Software Installation Scripts
 If starting from a fresh OpenSUSE installation, you can run the following script to set up all necessary software:

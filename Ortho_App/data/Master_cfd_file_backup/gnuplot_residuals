@@ -1,0 +1,17 @@
+#!/bin/bash
+
+value2=$PWD
+path_to_file="$value2/log.simpleFoam"
+#path_to_file="$value2/postProcessing/residuals/0/solverInfo.dat"
+
+gnuplot <<- EOF
+    set terminal png size 800, 600
+    set output 'residual_plot.png'
+    set logscale y
+    set title "CFD analysis residuals"
+    set ylabel 'Residual'
+    set xlabel 'No of Iterations/Timesteps'
+    set key outside
+    plot '$path_to_file' u 1:2 " %lf smoothSolver %lf %*lf %*lf %*lf %*lf %*lf %*lf %*lf %*lf false smoothSolver %*lf %*lf %*lf true GAMG %*lf %*lf %*lf true smoothSolver %*lf %*lf %*lf true" w lp pi -1 title 'Ux', '$path_to_file' u 1:2 " %lf smoothSolver %*lf %*lf %*lf %lf %*lf %*lf %*lf %*lf %*lf false smoothSolver %*lf %*lf %*lf true GAMG %*lf %*lf %*lf true smoothSolver %*lf %*lf %*lf true" w lp pi -1 title 'Uy', '$path_to_file' u 1:2 " %lf smoothSolver %*lf %*lf %*lf %*lf %*lf %*lf %lf %*lf %*lf false smoothSolver %*lf %*lf %*lf true GAMG %*lf %*lf %*lf true smoothSolver %*lf %*lf %*lf true" w lp pi -1 title 'Uz', '$path_to_file' u 1:2 " %lf smoothSolver %*lf %*lf %*lf %*lf %*lf %*lf %lf %*lf %*lf false smoothSolver %*lf %*lf %*lf true GAMG %lf %*lf %*lf true smoothSolver %*lf %*lf %*lf true " w lp pi -1 title 'p', '$path_to_file' u 1:2 " %lf smoothSolver %*lf %*lf %*lf %*lf %*lf %*lf %*lf %*lf %*lf false smoothSolver %lf %*lf %*lf true GAMG %*lf %*lf %*lf true smoothSolver %*lf %*lf %*lf true " w lp pi -1 title 'k', '$path_to_file' u 1:2 " %lf smoothSolver %*lf %*lf %*lf %*lf %*lf %*lf %*lf %*lf %*lf false smoothSolver %*lf %*lf %*lf true GAMG %*lf %*lf %*lf true smoothSolver %lf %*lf %*lf true " w lp pi -1 title 'omega'
+    replot
+EOF

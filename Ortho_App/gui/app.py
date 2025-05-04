@@ -1,10 +1,18 @@
+# Ortho CFD App entry point script
+# Computational Fluid Dynamics Lab
+# Author = Alejandro Matos Camarillo
+# Dr. Carlos F. Lange
+# Department of Mechanical Engineering
+# University of Alberta
+#
+# Date 2025-04-30
+
 # gui/app.py
 # Serves as main application controller:
 # Handles window configuration
 # Initializes all variables
 # Sets up the main GUI framework
 # Manages tab creation and navigation
-
 
 # Key Components:
 
@@ -14,7 +22,6 @@
 # Tab creation methods (create_tab1(), etc.)
 # Validation methods for each step
 # Utility methods for common operations
-
 
 import customtkinter as ctk
 import tkinter as tk
@@ -27,7 +34,9 @@ from .tabs.tab3 import Tab3Manager
 from .tabs.tab4 import Tab4Manager
 from .components.navigation import NavigationFrame
 from .utils.image_processing import generate_slices
-from config.settings import APP_SETTINGS
+from .config.settings import APP_SETTINGS, PATH_SETTINGS, UI_SETTINGS
+
+BASE_DIR = PATH_SETTINGS["BASE_DIR"]
 
 class OrthoCFDApp(ctk.CTk):
     def __init__(self):
@@ -48,13 +57,14 @@ class OrthoCFDApp(ctk.CTk):
     def setup_window(self):
         """Configure the main window settings"""
         self.title(APP_SETTINGS["TITLE"])
-        # self.geometry("1000x750")
-        self.minsize(*APP_SETTINGS["MIN_SIZE"])
 
         # Fullscreen with window decorations
-        self.attributes("-zoomed", True)  # For Linux TK
+        if APP_SETTINGS["FULLSCREEN"]:
+            self.attributes("-fullscreen", True)
+        else:
+            self.geometry(f"{w}x{h}")
 
-        self.resizable(True, True)
+        # self.resizable(True, True)
         ctk.set_appearance_mode("dark")
         ctk.set_default_color_theme(APP_SETTINGS["THEME"])
         self.setup_icon()
@@ -63,12 +73,19 @@ class OrthoCFDApp(ctk.CTk):
     def setup_icon(self):
         """Set up the application icon"""
         try:
-            # Load PNG image using PIL
-            icon_image = Image.open("/home/cfduser/Desktop/CFD_GUI/Airway-ML-CFD-Linux/Ortho_App/gui/components/Images/CFDLab-blogo2.png") # Linux tk
-            # Convert to PhotoImage
-            photo = ImageTk.PhotoImage(icon_image)
-            # Set as icon
+            # Build the path from the module-level BASE_DIR
+            icon_path = os.path.join(PATH_SETTINGS["ICONS_DIR"],PATH_SETTINGS["CFD_ICON"])
+
+            # 1) Open with PIL
+            pil_img = Image.open(icon_path)
+
+            # 2) Convert to a Tk PhotoImage
+            photo = ImageTk.PhotoImage(pil_img)
+
+            # 3) Keep a reference and set as window icon
+            self._icon_image = photo
             self.wm_iconphoto(False, photo)
+
         except Exception as e:
             print(f"Could not set icon: {e}")
 
@@ -110,8 +127,10 @@ class OrthoCFDApp(ctk.CTk):
 
     def setup_gui(self):
         """Set up the main GUI framework with a main frame."""
-        self.main_frame = ctk.CTkFrame(self, corner_radius=10)
-        self.main_frame.pack(fill="both", expand=True, padx=10, pady=10)
+        self.main_frame = ctk.CTkFrame(self, corner_radius=UI_SETTINGS["WINDOW"]["CORNER_RADIUS"])
+        self.main_frame.pack(fill="both", expand=True,
+                            padx=UI_SETTINGS["WINDOW"]["PAD_X"],
+                            pady=UI_SETTINGS["WINDOW"]["PAD_Y"])
 
         # Start with Tab 1
         self.create_tab1()
@@ -132,7 +151,7 @@ class OrthoCFDApp(ctk.CTk):
         self.folder_name_var = tk.StringVar()
         self.full_folder_path = None
         self.selected_dicom_folder = None
-        self.analysis_option.set("Select Analysis Type")
+        self.analysis_option = tk.StringVar(value=UI_SETTINGS["PLACEHOLDERS"]["ANALYSIS_MENU"])
         self.going_home = False
 
 
@@ -202,8 +221,8 @@ class OrthoCFDApp(ctk.CTk):
     def get_existing_folders(self, username, patient_name):
         """Get list of existing folders for the patient"""
         try:
-            base_path = os.path.expanduser("~/Desktop/CFD_GUI/User_Data/")
-            patient_path = os.path.join(base_path, username, patient_name)
+            user_data_path = PATH_SETTINGS["USER_DATA"]
+            patient_path = os.path.join(user_data_path, username, patient_name)
             
             if os.path.exists(patient_path):
                 return sorted([folder for folder in os.listdir(patient_path) 

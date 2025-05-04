@@ -5,8 +5,8 @@ from PIL import Image
 from customtkinter import CTkImage
 from ..components.navigation import NavigationFrame
 from ..components.info_display import InfoDisplay
-from ..utils.image_processing import generate_slices
-from config.settings import UI_SETTINGS
+from ..utils.image_processing import generate_slices, generate_nifti_slices
+from ..config.settings import UI_SETTINGS
 
 class Tab3Manager:
     def __init__(self, app):
@@ -18,6 +18,7 @@ class Tab3Manager:
         self._create_header()
         self._create_main_content()
         self._create_navigation()
+        self.app.bind_enter_key(self._validate_and_proceed)
 
     def _create_header(self):
         """Create the header with home button and step indicator"""
@@ -34,11 +35,11 @@ class Tab3Manager:
             top_frame,
             text="Home",
             command=self.app.go_home,
-            width=80,
-            height=40,
+            width=UI_SETTINGS["HOME_BUTTON"]["WIDTH"],
+            height=UI_SETTINGS["HOME_BUTTON"]["HEIGHT"],
+            font=UI_SETTINGS["FONTS"]["BUTTON_TEXT"],
             fg_color=UI_SETTINGS["COLORS"]["NAV_BUTTON"],
             hover_color=UI_SETTINGS["COLORS"]["NAV_HOVER"],
-            font=UI_SETTINGS["FONTS"]["NORMAL"]
         ).grid(row=0, column=0, padx=5, pady=5, sticky="w")
 
         # Step indicator
@@ -70,7 +71,7 @@ class Tab3Manager:
             "Date of Birth": self.app.dob.get(),
             "Scan Date": self.app.scandate.get(),
             "Referring Physician": self.app.patient_doctor_var.get(),
-            "Save Location": self.app.folder_name_var.get()
+            "Folder label": self.app.folder_name_var.get()
         }
         
         info_display = InfoDisplay(
@@ -116,7 +117,7 @@ class Tab3Manager:
                 ).pack(pady=(0, 5))
 
                 # Convert and display image
-                ctk_image = CTkImage(image, size=(200, 200))
+                ctk_image = CTkImage(image, size=(420, 420))
                 ctk.CTkLabel(
                     view_frame,
                     image=ctk_image,
@@ -134,11 +135,26 @@ class Tab3Manager:
             error_label.pack(pady=10)
 
     def _generate_preview_slices(self):
-        """Generate preview slices from DICOM data"""
-        if not self.app.selected_dicom_folder:
-            raise ValueError("No DICOM folder selected")
-
-        return generate_slices(self.app.selected_dicom_folder)
+        """Generate preview slices from either DICOM or NIfTI data"""
+        
+        # Check if we have DICOM files
+        if hasattr(self.app, 'selected_dicom_folder') and self.app.selected_dicom_folder:
+            print(f"Generating preview slices from DICOM: {self.app.selected_dicom_folder}")
+            return generate_slices(self.app.selected_dicom_folder)
+        
+        # Check if we have NIfTI files
+        elif hasattr(self.app, 'selected_files') and self.app.selected_files:
+            # Find NIfTI files in the selected_files list
+            nifti_files = [f for f in self.app.selected_files 
+                        if f.lower().endswith(('.nii', '.nii.gz'))]
+            
+            if nifti_files:
+                print(f"Generating preview slices from NIfTI: {nifti_files[0]}")
+                from ..utils.image_processing import generate_nifti_slices
+                return generate_nifti_slices(nifti_files[0])
+        
+        # If we get here, no valid files were found
+        raise ValueError("No valid DICOM or NIfTI files selected. Please go back and select medical image files.")
 
     def _create_navigation(self):
         """Create navigation buttons with descriptive labels, ensuring no duplicates."""

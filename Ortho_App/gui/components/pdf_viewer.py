@@ -5,7 +5,7 @@ import os
 import sys
 import threading
 import fitz  # PyMuPDF
-from ..utils.app_logger import AppLogger
+from ..utils.basic_utils import AppLogger
 
 class PDFViewerFrame(ctk.CTkFrame):
     """A frame that displays a PDF file within the application"""

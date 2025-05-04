@@ -1,0 +1,25 @@
+#!/bin/bash
+
+value2=$PWD
+path_to_file="$value2/postProcessing/surfaces/260/U_surfextract_in.raw"
+
+gnuplot <<- EOF
+   set title 'Mag(U) at plane located at Inlet for p5t1' font "Times New Roman, 22"
+   set xlabel 'X (m)' offset 0,-1
+   set ylabel 'Z (m)' offset 0,-1
+   set zlabel 'mag(U) m/s' offset 0,0
+   set xtics  0.026,0.004,0.054
+   set ytics
+   set lmargin 4
+   set grid
+   set dgrid3d 150,150,18
+   set pm3d
+   set hidden3d
+   set contour base
+   splot '$path_to_file' u 1:3:(($4**2)+($5**2)+($6**2))**(0.5) with lines palette,
+   set key off
+   set output 'surfextract_Inlet.png'
+   set term png size 1000,800 font "Times New Roman, 18"
+   set size 1.0, 1.0
+   replot
+EOF

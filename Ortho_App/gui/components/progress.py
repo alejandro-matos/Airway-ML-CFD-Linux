@@ -1,6 +1,6 @@
 import customtkinter as ctk
 from tkinter import ttk
-from config.settings import UI_SETTINGS
+from gui.config.settings import UI_SETTINGS
 
 class ProgressSection(ctk.CTkFrame):
     """A progress section with progress bar and output display"""
@@ -35,8 +35,8 @@ class ProgressSection(ctk.CTkFrame):
         # Output text with scrollbar
         self.output_text = ctk.CTkTextbox(
             self.output_frame,
-            height=120,
-            font=UI_SETTINGS["FONTS"]["SMALL"]
+            height=100,
+            font=UI_SETTINGS["FONTS"]["NORMAL"]
         )
         self.output_text.pack(fill="both", expand=True)
         

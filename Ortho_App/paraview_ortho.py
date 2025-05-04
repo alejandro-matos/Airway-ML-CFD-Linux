@@ -14,20 +14,16 @@ import paraview
 import time
 import os
 
-# version details
-
 paraview.compatibility.major = 5
 paraview.compatibility.minor = 12
 
 from paraview.simple import *
-
 # disable automatic camera reset on 'Show'
-
 paraview.simple._DisableFirstRenderCameraReset()
+
 start_time = time.time()
 
 # Open case.foam file
-
 file = open("sdir.txt", "r")
 path1 = file.readline()
 file.close()
@@ -49,8 +45,7 @@ casefoamDisplay.RescaleTransferFunctionToDataRange(True, False)
 layout1 = GetLayout()
 layout1.SetSize(1577, 733)
 
-# pressure & velocity pic-1 export
-
+# p & v pic-1 export
 ColorBy(casefoamDisplay, ('POINTS', 'p'))
 renderView1.InteractionMode = '2D'
 pLUT = GetColorTransferFunction('p')
@@ -89,8 +84,7 @@ casefoamDisplay.RescaleTransferFunctionToDataRange(True, False)
 path3 = os.path.join(path1, "v_full_1.png")
 SaveScreenshot(path3, renderView1, 16, ImageResolution=[1577, 733], OverrideColorPalette='WhiteBackground')
 
-# pressure pic-2,3,4,5 export
-
+# p pic-2,3,4,5 export
 ColorBy(casefoamDisplay, ('POINTS', 'p'))
 HideScalarBarIfNotNeeded(uLUT, renderView1)
 casefoamDisplay.SetScalarBarVisibility(renderView1, True)
@@ -131,8 +125,7 @@ casefoamDisplay.RescaleTransferFunctionToDataRange(True, False)
 path7 = os.path.join(path1, "p_full_4.png")
 SaveScreenshot(path7, renderView1, 16, ImageResolution=[1577, 733], OverrideColorPalette='WhiteBackground')
 
-# pressure & velocity section view pic-1 export
-
+# p & v section view pic-1 export
 clip1 = Clip(registrationName='Clip1', Input=casefoam)
 clip1.ClipType = 'Plane'
 clip1.HyperTreeGridClipper = 'Plane'
@@ -160,8 +153,7 @@ clip1Display.SetScalarBarVisibility(renderView1, True)
 path9 = os.path.join(path1, "v_cut_1.png")
 SaveScreenshot(path9, renderView1, 16, ImageResolution=[1577, 733], OverrideColorPalette='WhiteBackground')
 
-# pressure & velocity section view pic-2 export
-
+# p & v section view pic-2 export
 clip1.ClipType.Origin = [0.04306, 0.0468, 0.05385]
 ColorBy(clip1Display, ('POINTS', 'U', 'Magnitude'))
 renderView1.Update()
@@ -183,8 +175,9 @@ SaveScreenshot(path11, renderView1, 16, ImageResolution=[1577, 733], OverrideCol
 clip1Display.RescaleTransferFunctionToDataRange(False, True)
 Delete(clip1)
 
-# export velocity plot with streamlines pic 1
-
+# export streamline pic
+# stream 1
+# set scalar coloring
 SetActiveSource(casefoam)
 casefoamDisplay = Show(casefoam, renderView1, 'UnstructuredGridRepresentation')
 ColorBy(casefoamDisplay, ('FIELD', 'vtkBlockColors'))
@@ -222,9 +215,7 @@ uLUTColorBar.Position = [0.152, 0.022]
 uLUTColorBar.ScalarBarLength = 0.34
 uLUT.RescaleTransferFunction(0.0, 12.026)
 uPWF.RescaleTransferFunction(0.0, 12.026)
-
-# export velocity plot with streamlines pic 2
-
+# stream-2
 SetActiveSource(casefoam)
 streamTracer2 = StreamTracer(registrationName='StreamTracer2', Input=casefoam,
     SeedType='Line')
@@ -274,6 +265,6 @@ path13 = os.path.join(path1, "v_streamlines2.png")
 SaveScreenshot(path13, renderView1, 16, ImageResolution=[1577, 733], OverrideColorPalette='WhiteBackground')
 
 # Quit Paraview
-print("Finished taking photos of CFD Model in Paraview_v5.12")
+print("Finished taking photos of CFD Model in Paraview_v5.13")
 print("Please check output images p & v .png files")
 print("Time taken for postprocessing: ",time.time()-start_time)

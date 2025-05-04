@@ -1,7 +1,7 @@
 # gui/components/info_display.py
 # InfoDisplay: Frame for displaying information such as patient details, results, etc.
 import customtkinter as ctk
-from config.settings import UI_SETTINGS
+from gui.config.settings import UI_SETTINGS
 
 class InfoDisplay(ctk.CTkFrame):
     def __init__(self, parent, title, info_dict, **kwargs):

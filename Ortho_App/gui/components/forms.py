@@ -1,6 +1,6 @@
 # gui/components/forms.py
 import customtkinter as ctk
-from config.settings import UI_SETTINGS
+from gui.config.settings import UI_SETTINGS
 
 class LabeledEntry(ctk.CTkFrame):
     """A frame containing a label and entry field"""

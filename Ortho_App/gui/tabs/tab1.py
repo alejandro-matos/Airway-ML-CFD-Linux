@@ -6,8 +6,12 @@ from customtkinter import CTkImage
 import os
 import tkinter as tk
 import tkinter.messagebox as messagebox
-from gui.utils.app_logger import AppLogger
-from config.settings import UI_SETTINGS 
+from gui.utils.basic_utils import AppLogger
+from gui.config.settings import APP_SETTINGS, UI_SETTINGS, PATH_SETTINGS
+import json
+
+# Build these once, at import time
+USER_DATA_DIR = PATH_SETTINGS["USER_DATA"]
 
 class Tab1Manager:
     def __init__(self, app):
@@ -21,8 +25,10 @@ class Tab1Manager:
         self._create_logo_section()
         self._create_title_section()
         self._create_description_section()
+        self._create_contributors_section()
         self._create_username_section()
         self._create_next_button()
+        self._create_corner_logos()
         
         # Set focus to username entry and bind enter key
         self.app.bind_enter_key(self.validate_username)
@@ -35,9 +41,8 @@ class Tab1Manager:
 
         try:
             # Path to the GIF file
-            # gif_path = r"C:\Users\aleja\Desktop\Geometries\Airway-ML-CFD-Linux\Ortho_App\gui\components\Images\ualberta.gif"
-            gif_path = "/home/cfduser/Desktop/CFD_GUI/Airway-ML-CFD-Linux/Ortho_App/gui/components/Images/ualberta.gif"
-            
+            gif_path = os.path.join(PATH_SETTINGS["ICONS_DIR"],PATH_SETTINGS["GIF"])
+
             # Create a standard Tkinter label (not CTkLabel) for the animated GIF
             self.gif_frames = []
             self.current_frame = 0
@@ -50,8 +55,8 @@ class Tab1Manager:
             gif = Image.open(gif_path)
             
             # Determine desired size (adjust as needed)
-            target_width = 250
-            target_height = 120
+            w = UI_SETTINGS["LOGO"]["WIDTH"]
+            h = UI_SETTINGS["LOGO"]["HEIGHT"]
             
             # Count frames in the GIF
             try:
@@ -60,7 +65,7 @@ class Tab1Manager:
                     # Extract and resize each frame
                     gif.seek(frame_count)
                     frame = gif.copy()
-                    frame = frame.resize((target_width, target_height), Image.LANCZOS)
+                    frame = frame.resize((w,h), Image.LANCZOS)
                     frame_tk = ImageTk.PhotoImage(frame)
                     self.gif_frames.append(frame_tk)
                     frame_count += 1
@@ -99,7 +104,8 @@ class Tab1Manager:
             # Schedule the next frame update after a delay
             # You can adjust the delay (in ms) to control animation speed
             # Store the after ID so we can cancel it if needed
-            self.animation_after_id = self.app.after(50, self._animate_gif, next_frame)
+            delay = UI_SETTINGS["LOGO"]["ANIMATION_DELAY_MS"]
+            self.animation_after_id = self.app.after(delay, self._animate_gif, next_frame)
         except Exception as e:
             # If there's any error (like widget destroyed), stop animation
             self.animation_running = False
@@ -127,7 +133,7 @@ class Tab1Manager:
         """Create the title section with app name and welcome message"""
         title_label = ctk.CTkLabel(
             self.app.main_frame,
-            text="Ortho CFD Application v0.2\n\nWelcome",
+            text=f"{APP_SETTINGS['TITLE']}\n\nWelcome",
             font=UI_SETTINGS["FONTS"]["TITLE"],  # Using global font settings
             fg_color=UI_SETTINGS["COLORS"]["PRIMARY"],
             text_color=UI_SETTINGS["COLORS"]["TEXT_LIGHT"],
@@ -140,11 +146,16 @@ class Tab1Manager:
     def _create_description_section(self):
         """Create the description section with app information"""
         description_text = (
-            "[ApplicationTK] calculates the pressure difference in the \n"
-            "nasal cavity from 3D X-RAY scans using Computational Fliud Dynamics analysis.\n"
-            "Supported file formats: DICOM (.dcm), NIfTI (.nii.gz).\n\n"
-            "This application was built using: Python 3.11, nnUNetv2, Blender 2.82, OpenFOAM v2306, ParaView 5.12.\n\n"
-            "For inquiries, contact:\n"            "Dr. Carlos Lange - clange@ualberta.ca"
+            "Ortho CFD provides orthodontists with precise nasal airway pressure measurements derived from patient 3D scans. "
+            "This clinical tool helps quantify breathing obstruction severity and evaluate treatment outcomes.\n\n"
+            "• Upload patient scans in DICOM (.dcm) or NIfTI (.nii.gz) format\n"
+            "• Receive detailed pressure differential measurements across the upper airway\n"
+            "• Generate concise and informative CFD analysis reports\n"
+            "• Track treatment progress with comparative pre/post measurements\n\n"
+            "Developed at the University of Alberta using medical imaging technology and validated computational models.\n\n"
+            "For clinical support or technical inquiries:\n"
+            "Dr. Carlos F. Lange - clange@ualberta.ca\n"
+            "Dr. Manuel Lagravere - manuel@ualberta.ca"
         )
 
         description_label = ctk.CTkLabel(
@@ -153,7 +164,7 @@ class Tab1Manager:
             font=UI_SETTINGS["FONTS"]["NORMAL"],
             text_color=UI_SETTINGS["COLORS"]["TEXT_LIGHT"],
             justify="center",
-            wraplength=600  # Ensures text is readable on wider screens
+            wraplength=700  # Ensures text is readable on wider screens
         )
         description_label.pack(pady=UI_SETTINGS["PADDING"]["MEDIUM"])
     
@@ -176,8 +187,10 @@ class Tab1Manager:
             username_frame,
             textvariable=self.app.username_var,  # Rebind to the reinitialized variable
             width=250,
+            height=40,
             fg_color=UI_SETTINGS["COLORS"]["TEXT_LIGHT"],
-            text_color=UI_SETTINGS["COLORS"]["TEXT_DARK"]
+            text_color=UI_SETTINGS["COLORS"]["TEXT_DARK"],
+            font=UI_SETTINGS["FONTS"]["NORMAL"]
         )
         self.username_entry.pack(side="left", padx=UI_SETTINGS["PADDING"]["SMALL"])
 
@@ -207,16 +220,16 @@ class Tab1Manager:
             return False
 
         if not username.isalnum():
-            error_message = f"Username '{username}' must contain only letters and numbers."
+            error_message = f"Username '{username}' must contain only letters and numbers (e.g. No spaces or special characters)."
             self.logger.log_error(error_message)
-            tk.messagebox.showerror("Error", "Username must contain only letters and numbers.")
+            tk.messagebox.showerror("Error", "Username must contain only letters and numbers (e.g. No spaces or special characters).")
             return False
         
         # Define user folder path
-        user_folder = os.path.join("/home/cfduser/Desktop/CFD_GUI/User_Data", username)
+        user_folder = os.path.join(USER_DATA_DIR, username)
         
         try:
-            os.makedirs(user_folder, exist_ok=True)  # Create folder if it doesn’t exist
+            os.makedirs(user_folder, exist_ok=True)
             self.logger.log_info(f"User folder created: {user_folder}")
         except Exception as e:
             self.logger.log_error(f"Failed to create user folder: {e}")
@@ -228,3 +241,306 @@ class Tab1Manager:
         self.app.stored_username = username
         self.app.create_tab2()  # Navigate to next tab
         return True
+
+    def _create_corner_logos(self):
+        """Add logos to the bottom left and right corners of the main frame"""
+        # Create a frame for the bottom area that will contain both logos
+        bottom_frame = ctk.CTkFrame(self.app.main_frame, fg_color="transparent")
+        bottom_frame.pack(side="bottom", fill="x", pady=UI_SETTINGS["PADDING"]["SMALL"])
+        
+        # Left corner logo
+        try:
+            left_logo_path = os.path.join(PATH_SETTINGS["ICONS_DIR"], "CFDLab-blogo2.png")
+            left_logo_img = Image.open(left_logo_path)
+            
+            # Resize logo if needed
+            left_logo_size = (180, 70)  # Adjust size as needed
+            left_logo_img = left_logo_img.resize(left_logo_size, Image.LANCZOS)
+            
+            # Convert to CustomTkinter image
+            left_ctk_img = CTkImage(light_image=left_logo_img, dark_image=left_logo_img, size=left_logo_size)
+            
+            # Create label with the image
+            left_logo_label = ctk.CTkLabel(bottom_frame, image=left_ctk_img, text="")
+            left_logo_label.pack(side="left", padx=UI_SETTINGS["PADDING"]["MEDIUM"])
+        except Exception as e:
+            self.logger.log_error(f"Failed to load left corner logo: {str(e)}")
+        
+        # Add a spacer in the middle to push logos to corners
+        spacer = ctk.CTkFrame(bottom_frame, fg_color="transparent")
+        spacer.pack(side="left", fill="x", expand=True)
+        
+        # Right corner logo
+        try:
+            right_logo_path = os.path.join(PATH_SETTINGS["ICONS_DIR"], "UpperAirwaySegmentator3.png")
+            right_logo_img = Image.open(right_logo_path)
+            
+            # Resize logo if needed
+            right_logo_size = (120, 120)  # Adjust size as needed
+            right_logo_img = right_logo_img.resize(right_logo_size, Image.LANCZOS)
+            
+            # Convert to CustomTkinter image
+            right_ctk_img = CTkImage(light_image=right_logo_img, dark_image=right_logo_img, size=right_logo_size)
+            
+            # Create label with the image
+            right_logo_label = ctk.CTkLabel(bottom_frame, image=right_ctk_img, text="")
+            right_logo_label.pack(side="right", padx=UI_SETTINGS["PADDING"]["MEDIUM"])
+        except Exception as e:
+            self.logger.log_error(f"Failed to load right corner logo: {str(e)}")
+    
+    # =================================================================================
+    # ==================== FOR CONTRIBUTORS SECTION ===================================
+    # =================================================================================
+
+    def _create_contributors_section(self):
+        """Create a side-expandable panel that displays contributors without affecting layout"""
+        # Track panel state
+        self.panel_visible = False
+        
+        # Define panel width - we'll need this consistently
+        self.panel_width = 300
+        
+        # Create the vertical tab button on the right edge
+        self.toggle_panel_button = ctk.CTkButton(
+            self.app.main_frame,
+            text="Click to see \nContributors / Team",
+            font=UI_SETTINGS["FONTS"]["CONTRIB_BUTTON"],
+            fg_color=UI_SETTINGS["COLORS"]["SECONDARY"],
+            hover_color=UI_SETTINGS["COLORS"]["NAV_HOVER"],
+            text_color=UI_SETTINGS["COLORS"]["TEXT_LIGHT"],
+            width=40,
+            height=200,
+            corner_radius=10,
+            command=self._toggle_contributors_panel
+        )
+        # Place the button at the right edge, vertically centered
+        self.toggle_panel_button.place(relx=0.98, rely=0.1, anchor="e")
+        
+        # Create the panel that will be shown/hidden (initially hidden)
+        # CRITICAL: Set width and height here in the constructor, not in place()
+        self.contributors_panel = ctk.CTkFrame(
+            self.app.main_frame,  # Attach directly to main_frame
+            fg_color=UI_SETTINGS["COLORS"]["PANEL_BG"],
+            width=self.panel_width,  # Must set width here
+            height=600,  # Set a reasonable height - will be adjusted by relheight
+            corner_radius=10
+        )
+        # Note: We don't place it yet - will be placed when shown
+        
+        # Load contributors data
+        self.contributors_data = self._load_contributors_data()
+        
+        # Pre-build the contributors panel content
+        self._build_contributors_panel()
+
+    def _toggle_contributors_panel(self):
+        """Toggle the visibility of the side contributors panel"""
+        if not self.panel_visible:
+            # Calculate the position for the panel (right side, full height)
+            button_width = 40  # Width of the toggle button
+            
+            # Position the panel to the left of the button
+            # relx=1.0 means right edge, then offset by button_width + a small gap
+            # IMPORTANT: No width/height in place(), only in the constructor
+            self.contributors_panel.place(
+                relx=1.0, 
+                rely=0.0, 
+                anchor="ne",  # North-east (top-right) corner
+                relheight=1.0,  # Full height relative to parent
+                x=-(button_width + 5)  # Offset to the left of the button (with 5px gap)
+            )
+            
+            # Update button text
+            self.toggle_panel_button.configure(text="Close")
+            
+            # Update state
+            self.panel_visible = True
+        else:
+            # Hide the panel
+            self.contributors_panel.place_forget()
+            
+            # Reset button text
+            self.toggle_panel_button.configure(text="Click for \nContributors / Team")
+            
+            # Update state
+            self.panel_visible = False
+
+    def _build_contributors_panel(self):
+        """Build the contents of the contributors panel"""
+        # Add a header with close button
+        header_frame = ctk.CTkFrame(
+            self.contributors_panel, 
+            fg_color=UI_SETTINGS["COLORS"]["SECONDARY"],
+            corner_radius=0
+        )
+        header_frame.pack(fill="x", pady=(0, 10))
+        
+        # Title label
+        title_label = ctk.CTkLabel(
+            header_frame,
+            text="Contributors & Development Team",
+            font=UI_SETTINGS["FONTS"]["HEADER"],
+            text_color=UI_SETTINGS["COLORS"]["TEXT_LIGHT"]
+        )
+        title_label.pack(side="left", padx=10, pady=10)
+        
+        # Close button (X)
+        close_button = ctk.CTkButton(
+            header_frame,
+            text="×",
+            width=30,
+            height=30,
+            font=UI_SETTINGS["FONTS"]["LARGE_SYMBOL"],
+            fg_color="transparent",
+            hover_color=UI_SETTINGS["COLORS"]["NAV_HOVER"],
+            text_color=UI_SETTINGS["COLORS"]["TEXT_LIGHT"],
+            command=self._toggle_contributors_panel
+        )
+        close_button.pack(side="right", padx=5, pady=5)
+        
+        # Create scrollable frame for contributors
+        scrollable_frame = ctk.CTkScrollableFrame(
+            self.contributors_panel,
+            fg_color="transparent",
+            width=330
+        )
+        scrollable_frame.pack(fill="both", expand=True, padx=5, pady=5)
+        
+        # Add contributors to the scrollable frame
+        for contributor in self.contributors_data:
+            self._create_contributor_card(scrollable_frame, contributor)
+
+    def _create_contributor_card(self, parent_frame, contributor):
+        """Create a visual card for a single contributor"""
+        # Create a card frame for the contributor
+        card = ctk.CTkFrame(parent_frame, fg_color=UI_SETTINGS["COLORS"]["CARD_BG"])
+        card.pack(fill="x", padx=5, pady=5)
+        
+        # Name with larger font
+        name_label = ctk.CTkLabel(
+            card,
+            text=contributor["name"],
+            font=UI_SETTINGS["FONTS"]["SUBHEADER"],
+            text_color=UI_SETTINGS["COLORS"]["TEXT_DARK"]
+        )
+        name_label.pack(padx=10, pady=(10, 5), anchor="w")
+        
+        # Title
+        title_label = ctk.CTkLabel(
+            card,
+            text=contributor["title"],
+            font=UI_SETTINGS["FONTS"]["NORMAL"],
+            text_color=UI_SETTINGS["COLORS"]["TEXT_DARK"]
+        )
+        title_label.pack(padx=10, pady=2, anchor="w")
+        
+        # Department
+        if "department" in contributor:
+            dept_label = ctk.CTkLabel(
+                card,
+                text=contributor["department"],
+                font=UI_SETTINGS["FONTS"]["NORMAL_ITALIC"],
+                text_color=UI_SETTINGS["COLORS"]["TEXT_DARK"]
+            )
+            dept_label.pack(padx=10, pady=2, anchor="w")
+        
+        # Email 
+        if "email" in contributor:
+            email_label = ctk.CTkLabel(
+                card,
+                text=contributor["email"],
+                font=UI_SETTINGS["FONTS"]["SMALL"],
+                text_color=UI_SETTINGS["COLORS"]["LINK"]  # Keeps the same color for visual consistency
+            )
+            email_label.pack(padx=10, pady=(2, 10), anchor="w")
+
+    def _load_contributors_data(self):
+        """Load contributors data from a JSON file"""
+        contributors_file = PATH_SETTINGS["CONTRIB_DIR"]
+        
+        # Load existing contributors data with error handling
+        try:
+            if os.path.exists(contributors_file):
+                with open(contributors_file, 'r') as f:
+                    data = json.load(f)
+                    self.logger.log_info(f"Successfully loaded {len(data)} contributors")
+                    return data
+            else:
+                self.logger.log_error(f"Contributors file not found: {contributors_file}")
+                # Handling if contributor file is not found
+                return [
+                    {
+                        "name": "Carlos F. Lange, Ph.D., P.Eng.",
+                        "title": "Associate Professor, Faculty of Engineering",
+                        "email": "clange@ualberta.ca",
+                        "department": "Mechanical Engineering"
+                    },
+                    {
+                        "name": "Manuel Lagravere Vich, DDS, Ph.D.",
+                        "title": "Professor, Faculty of Medicine & Dentistry",
+                        "email": "manuel@ualberta.ca",
+                        "department": "Dentistry"
+                    },
+                    {
+                        "name": "Silvia Gianoni-Capenakas, DDS, Ph.D.",
+                        "title": "Professor, Faculty of Medicine & Dentistry",
+                        "email": "capenaka@ualberta.ca",
+                        "department": "Dentistry"
+                    },
+                    {
+                        "name": "Alejandro Matos Camarillo, MSc.",
+                        "title": "Research Assistant",
+                        "email": "amatos@ualberta.ca",
+                        "department": "Mechanical Engineering"
+                    },
+                    {
+                        "name": "Uday Tummala, MSc.",
+                        "title": "Research Assistant",
+                        "email": "utummala@ualberta.ca",
+                        "department": "Mechanical Engineering"
+                    }
+                ]
+        except json.JSONDecodeError as e:
+            # Specific handling in case JSON file contains syntax errors
+            self.logger.log_error(f"JSON syntax error in contributors file: {str(e)}")
+            messagebox.showwarning(
+                "Contributors File Error", 
+                f"The contributors.json file contains syntax errors. Using default contributors instead.\n\nDetails: {str(e)}"
+            )
+            # Return updated contributors list (from user's input)
+            return [
+                {
+                    "name": "Carlos F. Lange, Ph.D., P.Eng.",
+                    "title": "Associate Professor, Faculty of Engineering",
+                    "email": "clange@ualberta.ca",
+                    "department": "Mechanical Engineering"
+                },
+                {
+                    "name": "Manuel Lagravere Vich, DDS, Ph.D.",
+                    "title": "Professor, Faculty of Medicine & Dentistry",
+                    "email": "manuel@ualberta.ca",
+                    "department": "Dentistry"
+                },
+                {
+                    "name": "Silvia Gianoni-Capenakas, DDS, Ph.D.",
+                    "title": "Professor, Faculty of Medicine & Dentistry",
+                    "email": "capenaka@ualberta.ca",
+                    "department": "Dentistry"
+                },
+                {
+                    "name": "Alejandro Matos Camarillo, MSc.",
+                    "title": "Research Assistant",
+                    "email": "amatos@ualberta.ca",
+                    "department": "Mechanical Engineering"
+                },
+                {
+                    "name": "Uday Tummala, MSc.",
+                    "title": "Research Assistant",
+                    "email": "utummala@ualberta.ca",
+                    "department": "Mechanical Engineering"
+                }
+            ]
+        except Exception as e:
+            # General error handling
+            self.logger.log_error(f"Failed to load contributors data: {str(e)}")
+            return []

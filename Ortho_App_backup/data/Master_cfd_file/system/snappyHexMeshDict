@@ -14,9 +14,9 @@ FoamFile
 }
 // * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
 
-castellatedMesh true;
-snap            true;
-addLayers       true;
+castellatedMesh true;//false;
+snap            true;//false;
+addLayers       false;//true;
 
 //writeFlags
 //(
@@ -44,11 +44,27 @@ geometry // of all surface geometry used
 
     wall.stl {type triSurfaceMesh; scale 0.001; name wall;}
 
+    // wallb.stl {type triSurfaceMesh; scale 0.001; name wallb;}
+
     box1  // User defined region name
     {
         type   searchableBox;       // region defined by bounding box
-        min    (0 0 0);
-        max    (0.2 0.2 0.2);
+        min    (0.02 -0.001 0.06);
+        max    (0.06 0.098 0.118);
+    }
+
+    box2  // User defined region name
+    {
+        type   searchableBox;       // region defined by bounding box
+        min    (0.02 0.07 0);
+        max    (0.06 0.098 0.06);
+    }
+
+    sphere1  // User defined region name
+    {
+      type   searchableSphere;    // region defined by bounding sphere
+      centre (0.0395 0.0072 0.0767);
+      radius 0.03;
     }
 };
 
@@ -66,10 +82,20 @@ castellatedMeshControls
 
     resolveFeatureAngle 10; // Local curvature and feature angle refinement, To control curvature refinement 0: mark the whole surface for refinement 180: do not mark any STL face for refinement // 0 = crashes
 
-    features //Explicit feature edge refinement, To enable and control edge refinement level
+    features
     (
         {
-            file "combined.eMesh"; //feature edges of your geometry
+            file "inlet.eMesh";
+            scale 0.001;
+            level 0;
+        }
+        {
+            file "outlet.eMesh";
+            scale 0.001;
+            level 0;
+        }
+        {
+            file "wall.eMesh";
             scale 0.001;
             level 0;
         }
@@ -101,19 +127,43 @@ castellatedMeshControls
               type wall;
             }
         }
+        // wallb
+        // {
+        //     level (0 0);
+        //     patchInfo
+        //     {
+        //       type wall;
+        //     }
+        // }
     }
     
     refinementRegions
      {
-        box1
+         box1
          {
              mode inside;
              levels ((1.0 2));         // refinement level 4 (1.0 entry ignored)
         }
 
+        box2
+        {
+             mode inside;
+             levels ((1.0 2));         // refinement level 4 (1.0 entry ignored)
+        }
+
+        sphere1
+        {
+            mode inside;
+            levels ((1.0 2));
+            //inside – refinement level inside the (closed) object:
+            //levels ((1E15 4))
+            //only the second number is relevant, the first number is not read
+            //distance – refinement level with respect to the distance from the object:
+            //levels ((0.001 3) (0.01 2) (0.1 1))
+        }
     }
 
-    locationInMesh (0.039 0.091 0.065);
+    locationInMesh (0.0388 0.0813 0.062);
 
     allowFreeStandingZoneFaces false; // Allowing zone faces that share the same owner and neighbour cell zone. Not used if there are no faceZones.
 }
@@ -170,24 +220,21 @@ addLayersControls
         }
     }
 
-    expansionRatio 1.3; //1.2-1.3
+    expansionRatio 1.3;
 
     // Wanted thickness of final added cell layer. If multiple layers
     // is the thickness of the layer furthest away from the wall.
     // Relative to undistorted size of cell outside layer.
     // See relativeSizes parameter.
     //finalLayerThickness 1.5;
-    firstLayerThickness 0.000015;
-    //0.0000150
-//0.0000119
-//0.0000094
-//0.0000075
+    firstLayerThickness 0.0000179;
 
 
     // Minimum thickness of cell layer. If for any reason layer
     // cannot be above minThickness do not add layer.
     // Relative to undistorted size of cell outside layer.
     minThickness 0.0000125;
+
 
     // If points get not extruded do nGrow layers of connected faces that are also not grown. This helps convergence of the layer addition process close to features.
     nGrow 0;
@@ -270,7 +317,7 @@ meshQualityControls
     //      0 = flat tet
     //      1 = regular tet
     //  1e-15 (small positive) to enable tracking, -1e+30 (large negative) for best layer insertion
-    minTetQuality    -1e30;//1e-15; //
+    minTetQuality   1e-15;//-1e30; //
 
     //- Minimum face twist. Set to <-1 to disable. dot product of face normal
     //  and face centre triangles normal

@@ -77,7 +77,7 @@ def tab2():
             top.title('Excel viewer')
             top.geometry("1200x400")
             top.minsize(height=400, width=1200)
-            photo = ImageTk.PhotoImage(Image.open('./gui/components/Images/CFDLab-blogo2.png'))
+            photo = ImageTk.PhotoImage(Image.open('CFDLab-blogo2.png'))
             top.wm_iconphoto(False, photo)
             wb1 = openpyxl.load_workbook(filepath)
             ws = wb1['tab1']
@@ -145,59 +145,14 @@ def tab3():
     def run1():
         status_e.delete(0, END)
         status_e.insert(0, "")
-
-        # Create a log file
-        log_file = open(os.path.join(dirs, "blender_log.txt"), "w")
-        
         source_dir = r"data/Master_cfd_file"
-        shutil.copytree(source_dir, dirs, symlinks=False, ignore=None, 
-                        ignore_dangling_symlinks=False, dirs_exist_ok=True)
-
-        # Run Blender with real-time output capture
-        process = subprocess.Popen(
-            ["blender", "--background", "--python", "blender_ortho.py"],
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            universal_newlines=True,
-            bufsize=1
-        )
-
-        # Create a function to handle output in real-time
-        def log_output(pipe, log_file):
-            for line in pipe:
-                print(line, end='')  # Print to console
-                log_file.write(line)  # Write to log file
-                log_file.flush()      # Ensure it's written immediately
-                
-                # Update GUI with latest status
-                status_e.delete(0, END)
-                status_e.insert(0, "Processing..." + line.strip()[:30])
-                root.update()
-
-        # Create threads to handle stdout and stderr
-        from threading import Thread
-        Thread(target=log_output, args=[process.stdout, log_file]).start()
-        Thread(target=log_output, args=[process.stderr, log_file]).start()
-
-        # Wait for process to complete
-        return_code = process.wait()
-        log_file.close()
-
-        # Check if Blender finished successfully
-        if return_code == 0:
-            status_e.delete(0, END)
-            status_e.insert(0, "completed")
-            
-            # Show completion message with log file location
-            messagebox.showinfo("Process Complete", 
-                f"Blender processing completed. Check log file at:\n{os.path.join(dirs, 'blender_log.txt')}")
+        shutil.copytree(source_dir, dirs, symlinks=False, ignore=None, ignore_dangling_symlinks=False, dirs_exist_ok=True)
+        proc = subprocess.Popen(["blender --background --python blender_ortho.py"], stdout = subprocess.PIPE, shell=True)
+        (out, err) = proc.communicate()
+        if b"Finished" in out:
+            status_e.insert("insert","completed")
         else:
-            status_e.delete(0, END)
-            status_e.insert(0, "error")
-            
-            # Show error message with log file location
-            messagebox.showerror("Process Error", 
-                f"Blender processing failed. Check log file at:\n{os.path.join(dirs, 'blender_log.txt')}")
+            status_e.insert("insert","error")
 
     open_button = Button(root, text="Open", command=open1, activebackground='green',	font=('Times_New_Roman', 16)).place(x = 400, y = 60)
     Run_Pre = Label(root, text = "Run Pre-Processing of Geometry",font=('Times_New_Roman', 16)).place(x = 40, y = 160)
@@ -266,6 +221,7 @@ def tab4():
         path2 = os.path.join(dirs, "constant/triSurface")
         proc1 = subprocess.Popen(['/bin/bash', '-c',"bash ./Allclean"], cwd=dirs, stdout=subprocess.PIPE)
         proc1.wait()
+        print(f'This is path2:{path2}')
         procc = subprocess.Popen(['/bin/bash', '-c',"rm combined.stl"], cwd=path2, stdout=subprocess.PIPE)
         procc.wait()
         proc2 = subprocess.Popen(["cat *.stl >> combined.stl"], cwd=path2, shell=True, stdout=subprocess.PIPE)

@@ -7,11 +7,11 @@ import numpy as np
 import vtk
 from pathlib import Path
 import re
-from gui.utils.app_logger import AppLogger
+from gui.utils.basic_utils import AppLogger
 import time
 
-class AirwayProcessor:
-    def __init__(self, input_folder, output_folder, callback=None):
+class AirwaySegmentator:
+    def __init__(self, input_file=None, input_folder=None, output_folder=None, callback=None, input_type="dicom"):
         """
         Initialize the airway processing pipeline
         
@@ -20,11 +20,13 @@ class AirwayProcessor:
             output_folder (str): Path to output folder for all processing steps
             callback (callable): Optional callback function for progress updates
         """
-        self.input_folder = Path(input_folder)
+        self.input_file = Path(input_file) if input_file else None
+        self.input_folder = Path(input_folder) if input_folder else None
         self.output_folder = Path(output_folder)
         self.callback = callback
+        self.input_type = input_type.lower()
         self.current_subprocess = None
-        self.logger = AppLogger() 
+        self.logger = AppLogger()
         
         # Create necessary subfolders
         self.nifti_folder = self.output_folder / "nifti"
@@ -101,10 +103,13 @@ class AirwayProcessor:
                     '-i', str(self.nifti_folder),
                     '-o', str(self.prediction_folder),
                     '-d', 'Dataset014_Airways',
-                    '-c', '3d_fullres',
+                    '-c', '3d_fullres_bs4',
                     '-device', 'cuda',
                     '-f', 'all',
-                    '-step_size', '0.7',
+                    '-step_size', '0.7', # Increased from default 0.5
+                    '--disable_tta',  # Add this for faster inference if accuracy trade-off is acceptable
+                    '-npp', '8',  # Increase preprocessing threads (up from default 2)
+                    '-nps', '8',  # Increase segmentation export threads (up from default 2)
                 ],
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,
@@ -193,7 +198,7 @@ class AirwayProcessor:
     def calculate_volume(self, nifti_path):
         """Calculate volume of the segmented airway"""
         try:
-            self.update_progress("Calculating airway volume...", 70)
+            # self.update_progress("Calculating airway volume...", 70)
             
             nifti_img = nib.load(nifti_path)
             data = nifti_img.get_fdata()
@@ -213,17 +218,23 @@ class AirwayProcessor:
             self.logger.log_error(f"Error in volume calculation: {e}")
             raise
 
-    def create_stl(self, nifti_path, threshold_value=1, decimate=True, decimate_target_reduction=0.5):
+    def create_stl(self, nifti_path, threshold_value=1, decimate=True, decimate_target_reduction=0.10):
         """Convert segmentation to STL format with advanced smoothing and transformations"""
         try:
-            self.update_progress("Creating STL model...", 85)
+            self.update_progress("Calculating airway volume and creating 3D model...", 85)
 
-            # Extract filename without extension
-            nifti_filename = Path(nifti_path).stem  # Get filename without extension
+            # Extract filename without both extensions (.nii.gz)
+            nifti_path = Path(nifti_path)
+            nifti_filename = nifti_path.stem  # Removes the .gz
+            if nifti_filename.endswith('.nii'):
+                nifti_filename = Path(nifti_filename).stem  # Removes the .nii
+
+            # Then handle the _pred suffix
             if nifti_filename.endswith("_pred"):
                 nifti_filename = nifti_filename.replace("_pred", "_geo")  # Remove _pred suffix if exists
             
             stl_path = self.stl_folder / f"{nifti_filename}.stl"  # Set STL filename
+            stl_path = stl_path.resolve()  # Ensures it's absolute
             
             # Load NIfTI file
             reader = vtk.vtkNIFTIImageReader()
@@ -238,34 +249,62 @@ class AirwayProcessor:
             
             output_polydata = discrete_flying_edges.GetOutput()
 
-            # Apply decimation if requested
-            if decimate:
-                decimator = vtk.vtkDecimatePro()
-                decimator.SetInputData(output_polydata)
-                decimator.SetTargetReduction(decimate_target_reduction)
-                decimator.PreserveTopologyOn()
-                decimator.Update()
-                output_polydata = decimator.GetOutput()
+            # First clean the mesh to remove duplicate points
+            cleaner = vtk.vtkCleanPolyData()
+            cleaner.SetInputData(output_polydata)
+            cleaner.SetTolerance(0.0001)
+            cleaner.ConvertLinesToPointsOff()
+            cleaner.ConvertPolysToLinesOff()
+            cleaner.ConvertStripsToPolysOff()
+            cleaner.PointMergingOn()
+            cleaner.Update()
+            output_polydata = cleaner.GetOutput()
+
+            # Improve triangle quality
+            triangle_filter = vtk.vtkTriangleFilter()
+            triangle_filter.SetInputData(output_polydata)
+            triangle_filter.PassLinesOff()
+            triangle_filter.PassVertsOff()
+            triangle_filter.Update()
+            output_polydata = triangle_filter.GetOutput()
+
+            # Ensure model is completely closed and manifold
+            connected_filter = vtk.vtkPolyDataConnectivityFilter()
+            connected_filter.SetInputData(output_polydata)
+            connected_filter.SetExtractionModeToLargestRegion()
+            connected_filter.Update()
+            output_polydata = connected_filter.GetOutput()
 
             # Apply smoothing
-            # smoothing_filter = vtk.vtkSmoothPolyDataFilter()
-            # smoothing_filter.SetInputData(output_polydata)
-            # smoothing_filter.SetNumberOfIterations(5)
-            # smoothing_filter.SetRelaxationFactor(0.05)
-            # smoothing_filter.FeatureEdgeSmoothingOff()
-            # smoothing_filter.BoundarySmoothingOn()
-            # smoothing_filter.Update()
-            # output_polydata = smoothing_filter.GetOutput()
-            smoothing_filter = vtk.vtkWindowedSincPolyDataFilter()
+            smoothing_filter = vtk.vtkSmoothPolyDataFilter()
             smoothing_filter.SetInputData(output_polydata)
-            smoothing_filter.SetNumberOfIterations(10)
-            smoothing_filter.NonManifoldSmoothingOn()
-            smoothing_filter.NormalizeCoordinatesOn()
+            smoothing_filter.SetNumberOfIterations(30)
+            smoothing_filter.SetRelaxationFactor(0.2)  
             smoothing_filter.FeatureEdgeSmoothingOff()
             smoothing_filter.BoundarySmoothingOn()
             smoothing_filter.Update()
             output_polydata = smoothing_filter.GetOutput()
 
+            # Apply decimation
+            decimator = vtk.vtkDecimatePro()
+            decimator.SetInputData(output_polydata)
+            decimator.SetTargetReduction(decimate_target_reduction)
+            decimator.PreserveTopologyOn()
+            decimator.BoundaryVertexDeletionOff()
+            decimator.SplittingOff()
+            decimator.Update()
+            output_polydata = decimator.GetOutput()
+            
+            # Apply Windowed Sinc smoothing with conservative settings
+            smoother = vtk.vtkWindowedSincPolyDataFilter()
+            smoother.SetInputData(output_polydata)
+            smoother.SetNumberOfIterations(10)
+            smoother.FeatureEdgeSmoothingOff()
+            smoother.SetFeatureAngle(120)
+            smoother.SetPassBand(0.2)
+            smoother.SetBoundarySmoothing(True)
+            smoother.Update()
+            output_polydata = smoother.GetOutput()
 
             # Get QForm matrix
             qform_matrix = reader.GetQFormMatrix()
@@ -292,19 +331,33 @@ class AirwayProcessor:
             transform_filter.Update()
             transformed_polydata = transform_filter.GetOutput()
 
-            # Compute normals
+            # Extract largest region again after transformation
+            connected_filter = vtk.vtkPolyDataConnectivityFilter()
+            connected_filter.SetInputData(transformed_polydata)
+            connected_filter.SetExtractionModeToLargestRegion()
+            connected_filter.Update()
+            clean_polydata = connected_filter.GetOutput()
+
+            # Compute normals 
             normals = vtk.vtkPolyDataNormals()
-            normals.SetInputData(transformed_polydata)
+            normals.SetInputData(clean_polydata)
             normals.SetFeatureAngle(60.0)
             normals.ConsistencyOn()
             normals.SplittingOff()
+            normals.AutoOrientNormalsOn()
             normals.Update()
+            output_polydata = normals.GetOutput()
+            
+            # Final clean to ensure high quality
+            final_cleaner = vtk.vtkCleanPolyData()
+            final_cleaner.SetInputData(output_polydata)
+            final_cleaner.Update()
 
             # Write STL file
             stl_writer = vtk.vtkSTLWriter()
             stl_writer.SetFileTypeToBinary()
             stl_writer.SetFileName(str(stl_path))
-            stl_writer.SetInputData(normals.GetOutput())
+            stl_writer.SetInputData(output_polydata)
             stl_writer.Write()
 
             # Generate STL Preview
@@ -317,97 +370,185 @@ class AirwayProcessor:
             raise
 
     def process(self):
-        """Run the complete processing pipeline"""
+        """Run the complete processing pipeline for DICOM or NIfTI input"""
         try:
-            # Switch to determinate mode before starting actual processing
-            self.update_progress(
-                "Starting DICOM conversion...",
-                0,
-                "Beginning processing pipeline"
-            )
-            
-            # Convert DICOM to NIfTI
-            nifti_path = self.convert_dicom_to_nifti()
-            
+            if self.input_type == "nifti":
+                # Use the provided NIfTI file directly
+                nifti_path = Path(self.input_file)
+                self.update_progress("Using provided NIfTI file...", 10)
+                # Copy NIfTI file into expected folder
+                target_path = self.nifti_folder / (nifti_path.stem + ".nii.gz")
+                target_path.write_bytes(nifti_path.read_bytes())
+                nifti_path = target_path
+            else:
+                # DICOM input — convert to NIfTI
+                self.update_progress("Converting DICOM to NIfTI...", 10)
+                nifti_path = self.convert_dicom_to_nifti()
+
             # Run nnUNet prediction
             pred_path = self.run_nnunet_prediction()
-            
+
             # Calculate volume
             volume = self.calculate_volume(pred_path)
-            
+
             # Create STL
             stl_result = self.create_stl(pred_path)
-            
+
             self.update_progress("Processing complete!", 100)
-            
+
             return {
-                'nifti_path': nifti_path,
+                'nifti_path': str(nifti_path),
                 'prediction_path': pred_path,
                 'volume': volume,
-                'stl_path': stl_result  # This contains both the STL path and preview path
+                'stl_path': stl_result  # Dict with 'stl_path' and 'preview_path'
             }
-            
+
         except Exception as e:
             self.update_progress(f"Error: {str(e)}", 0)
             raise
 
-    def generate_stl_preview(self, stl_path):  #Comment for full functionality tk
+
+    def generate_stl_preview(self, stl_path, view_type="perspective"):
         """
-        Generate a 2D preview image of an STL model and save it as a PNG file.
-        This method does NOT open a render window.
+        Generate a 2D preview image of an STL model with enhanced lighting and rendering.
+        
+        Args:
+            stl_path (str): Path to the STL file
+            view_type (str): View type - "perspective" (default), "front", "side", "anatomical_front", etc.
+            
+        Returns:
+            str: Path to the generated PNG image, or None if failed
         """
         try:
-
             preview_path = str(Path(stl_path).with_suffix(".png"))
-
+            self.logger.log_info(f"Generating STL preview for: {stl_path}")
+            
             # Read STL file
             reader = vtk.vtkSTLReader()
             reader.SetFileName(stl_path)
-
+            reader.Update()
+            
             # Create mapper
             mapper = vtk.vtkPolyDataMapper()
             mapper.SetInputConnection(reader.GetOutputPort())
-
-            # Create actor
+            
+            # Create actor with optimized properties
             actor = vtk.vtkActor()
             actor.SetMapper(mapper)
-            actor.GetProperty().SetColor(0.9, 0.9, 0.9)  # Light gray
-
-            # Create renderer (offscreen mode)
+            
+            # Set light blue-gray color that works well for airway models
+            actor.GetProperty().SetColor(0.7, 0.7, 0.9)
+            
+            # Optimize material properties for medical visualization
+            actor.GetProperty().SetAmbient(0.4)
+            actor.GetProperty().SetDiffuse(0.8)
+            actor.GetProperty().SetSpecular(0.3)
+            actor.GetProperty().SetSpecularPower(15)
+            
+            # Create renderer with white background
             renderer = vtk.vtkRenderer()
             renderer.AddActor(actor)
-            renderer.SetBackground(1, 1, 1)  # White background
-
+            renderer.SetBackground(1, 1, 1)  # Pure white background
+            renderer.SetTwoSidedLighting(True)  # Illuminate both sides of surfaces
+            
+            # Get model bounds and center for camera and light positioning
+            bounds = actor.GetBounds()
+            center = [(bounds[0] + bounds[1])/2, (bounds[2] + bounds[3])/2, (bounds[4] + bounds[5])/2]
+            
+            # Add multiple lights for better illumination
+            
+            # Main light from front
+            light1 = vtk.vtkLight()
+            light1.SetPosition(center[0], center[1] - (bounds[3] - bounds[2]) * 3, center[2])
+            light1.SetFocalPoint(center[0], center[1], center[2])
+            light1.SetIntensity(0.8)
+            light1.SetLightTypeToSceneLight()
+            renderer.AddLight(light1)
+            
+            # Secondary light from top-right
+            light2 = vtk.vtkLight()
+            light2.SetPosition(
+                center[0] + (bounds[1] - bounds[0]), 
+                center[1], 
+                center[2] + (bounds[5] - bounds[4])
+            )
+            light2.SetFocalPoint(center[0], center[1], center[2])
+            light2.SetIntensity(0.6)
+            light2.SetLightTypeToSceneLight()
+            light2.SetColor(0.9, 0.9, 1.0)  # Slightly blue tint
+            renderer.AddLight(light2)
+            
+            # Fill light from left
+            light3 = vtk.vtkLight()
+            light3.SetPosition(
+                center[0] - (bounds[1] - bounds[0]) * 2, 
+                center[1], 
+                center[2]
+            )
+            light3.SetFocalPoint(center[0], center[1], center[2])
+            light3.SetIntensity(0.4)
+            light3.SetLightTypeToSceneLight()
+            renderer.AddLight(light3)
+            
+            # Set up the render window
             render_window = vtk.vtkRenderWindow()
             render_window.SetOffScreenRendering(1)  # Ensure no window appears
             render_window.AddRenderer(renderer)
-            render_window.SetSize(800, 600)  # Resolution
-
+            render_window.SetSize(800, 600)
+            
+            # Configure camera based on the desired view
+            camera = renderer.GetActiveCamera()
+            
+            if view_type == "front":
+                # Standard front view
+                camera.SetPosition(bounds[1] + (bounds[1] - bounds[0]) * 2, center[1], center[2])
+                camera.SetFocalPoint(center[0], center[1], center[2])
+                camera.SetViewUp(0, 0, 1)
+                
+            elif view_type == "perspective" or view_type not in ["front", "anatomical_front", "side", "top"]:
+                # 3/4 perspective view - works well for airway models
+                camera.SetPosition(
+                    center[0] - (bounds[1] - bounds[0])*1.2,
+                    center[1] - (bounds[3] + bounds[2]) * 1.5,
+                    center[2] - (bounds[5] - bounds[4])
+                )
+                camera.SetFocalPoint(center[0], center[1], center[2])
+                camera.SetViewUp(0, 0, 1)
+            
+            # Reset camera to fit model properly
+            # Zoom in by 20%
+            camera.Zoom(1.2)
+            renderer.ResetCamera()
+            
+            # Use parallel projection for orthographic views
+            if view_type != "perspective":
+                camera.ParallelProjectionOn()
+                camera.SetParallelScale((bounds[3] - bounds[2]) * 0.6)
+            
+            # Reset clipping planes
+            renderer.ResetCameraClippingRange()
+            
+            # Render the scene
             render_window.Render()
-
-            # Capture as PNG
+            
+            # Capture as PNG with solid white background
             window_to_image = vtk.vtkWindowToImageFilter()
             window_to_image.SetInput(render_window)
             window_to_image.SetScale(2)  # High resolution
-            window_to_image.SetInputBufferTypeToRGBA()
+            window_to_image.SetInputBufferTypeToRGB()  # RGB instead of RGBA (no alpha channel)
+            window_to_image.ReadFrontBufferOff()  # Read from back buffer
             window_to_image.Update()
-
+            
+            # Write PNG file
             writer = vtk.vtkPNGWriter()
             writer.SetFileName(preview_path)
             writer.SetInputConnection(window_to_image.GetOutputPort())
             writer.Write()
-
-            # self.update_progress("generating preview of model", 80)
-
+            
+            self.logger.log_info(f"STL preview saved to: {preview_path}")
             return preview_path
-
+            
         except Exception as e:
-            self.logger.log_error(f"Error generating STL preview: {e}")
+            self.logger.log_error(f"Error generating STL preview: {str(e)}")
             return None
-
-
-        except Exception as e:
-            self.logger.log_error(f"Error generating STL preview: {e}")
-            return None
-
     

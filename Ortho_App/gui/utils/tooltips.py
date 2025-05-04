@@ -5,13 +5,14 @@ class ToolTip:
     """
     Creates a tooltip for a given widget with customizable appearance.
     """
-    def __init__(self, widget, text):
+    def __init__(self, widget, text, font=("Arial", 12)):
         self.widget = widget
         self.text = text
+        self.font = font
         self.tooltip_window = None
         self.widget.bind("<Enter>", self.show_tooltip)
         self.widget.bind("<Leave>", self.hide_tooltip)
-
+        
     def show_tooltip(self, event=None):
         """Display the tooltip window with text."""
         x = self.widget.winfo_rootx() + self.widget.winfo_width() // 2
@@ -27,10 +28,13 @@ class ToolTip:
             background="lightyellow",
             relief="solid",
             borderwidth=1,
-            font=("Arial", 10)
+            font=self.font,
+            wraplength=650,
+            justify="left",  # Left-align text
+            anchor="w"       # West (left) anchor for text
         )
-        label.pack()
-
+        label.pack(padx=10, pady=8, fill="both")
+        
     def hide_tooltip(self, event=None):
         """Hide/destroy the tooltip window."""
         if self.tooltip_window:

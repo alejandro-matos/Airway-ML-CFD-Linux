@@ -17,7 +17,7 @@ import os
 # version details
 
 paraview.compatibility.major = 5
-paraview.compatibility.minor = 12
+paraview.compatibility.minor = 13
 
 from paraview.simple import *
 

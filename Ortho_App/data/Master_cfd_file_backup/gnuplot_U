@@ -1,0 +1,21 @@
+#!/bin/bash
+
+value2=$PWD
+path_to_file="$value2/postProcessing/probes/0/U"
+path_to_file1="$value2/postProcessing/avgsurf_out/0/surfaceFieldValue.dat"
+path_to_file2="$value2/postProcessing/avgsurf_in/0/surfaceFieldValue.dat"
+
+gnuplot <<- EOF
+  set title "U Convergence process for p5t1"
+  set xlabel 'Time'
+  set ylabel 'U [m/s]'
+  set grid xtics
+  set grid ytics
+  set grid
+  plot '$path_to_file' u 1:(($2**2)+($3**2)+($4**2))**(0.5) " %lf (%lf %lf %lf) (%*lf %*lf %*lf) (%*lf %*lf %*lf) " w lp pi -1 title 'MagU probe out',   '$path_to_file1' u 1:(($2**2)+($3**2)+($4**2))**(0.5) " %lf %*lf (%lf %lf %lf) " w lp pi -1 title 'MagU surf out',   '$path_to_file' u 1:(($2**2)+($3**2)+($4**2))**(0.5) " %lf (%*lf %*lf %*lf) (%lf %lf %lf) (%*lf %*lf %*lf) " w lp pi -1 title 'MagU probe in1',   '$path_to_file' u 1:(($2**2)+($3**2)+($4**2))**(0.5) " %lf (%*lf %*lf %*lf) (%*lf %*lf %*lf) (%lf %lf %lf) " w lp pi -1 title 'MagU probe in2',   '$path_to_file2' u 1:(($2**2)+($3**2)+($4**2))**(0.5) " %lf %*lf (%lf %lf %lf) " w lp pi -1 title 'MagU surf in'
+  set key outside
+  set term png size 800, 600
+  set size 1.0, 1.0
+  set output 'U.png'
+  replot
+EOF

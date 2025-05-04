@@ -16,22 +16,26 @@ FoamFile
 // * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
 
 scale   0.001;
+//Bounding Box : (-20.5 -45.4 3) (99.5 93.9068 134.8)
 
 vertices
 (
-    (-20 -20 -20) // Vetrex0
-    (150 -20 -20) // Vetrex1
-    (150 150 -20) // Vetrex2
-    (-20 150 -20) // Vetrex3
-    (-20 -20 150) // Vetrex0
-    (150 -20 150) // Vetrex1
-    (150 150 150) // Vetrex2
-    (-20 150 150) // Vetrex3
+    (-22 -48 0) // Vetrex0
+    (102 -48 0) // Vetrex1
+    (102 96 0) // Vetrex2
+    (-22 96 0) // Vetrex3
+    (-22 -48 137) // Vetrex0
+    (102 -48 137) // Vetrex1
+    (102 96 137) // Vetrex2
+    (-22 96 137) // Vetrex3
 );
 
 blocks
 (
-    hex (0 1 2 3 4 5 6 7) (143 143 143) simpleGrading (1 1 1)
+    hex (0 1 2 3 4 5 6 7) (93 108 102) simpleGrading (1 1 1)
+    // ( 1 ((0.5 0.5 10) (0.5 0.5 1)) 1)
+    // Linear refinement 1.26 - 2 (1.26 for Engg, 2 for scientific)
+
 );
 
 edges

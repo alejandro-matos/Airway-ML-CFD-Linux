@@ -1,0 +1,312 @@
+/*--------------------------------*- C++ -*----------------------------------*\
+| =========                 |                                                 |
+| \\      /  F ield         | OpenFOAM: The Open Source CFD Toolbox           |
+|  \\    /   O peration     | Version:  v2012                                 |
+|   \\  /    A nd           | Website:  www.openfoam.com                      |
+|    \\/     M anipulation  |                                                 |
+\*---------------------------------------------------------------------------*/
+FoamFile
+{
+    version     2.0;
+    format      ascii;
+    class       dictionary;
+    object      snappyHexMeshDict;
+}
+// * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
+
+castellatedMesh true; //false; //
+snap            true; //false; //
+addLayers       false; //true;
+
+//writeFlags
+//(
+//   scalarLevels
+//   layerSets
+//   layerFields     // write volScalarField for layer coverage
+//);
+// Flags for optional output
+// 0 : only write final meshes
+// 1 : write intermediate meshes
+// 2 : write volScalarField with cellLevel for
+// postprocessing
+// 4 : write current intersections as . obj files
+debug 0;
+
+// Merge tolerance. Is fraction of overall bounding box of initial mesh.
+// Note: the write tolerance needs to be higher than this.
+mergeTolerance 1e-6;
+
+geometry // of all surface geometry used
+{
+    inlet.stl {type triSurfaceMesh; scale 0.001; name inlet;}
+
+    outlet.stl {type triSurfaceMesh; scale 0.001; name outlet;}
+
+    wall.stl {type triSurfaceMesh; scale 0.001; name wall;}
+
+    box1  // User defined region name
+    {
+        type   searchableBox;       // region defined by bounding box
+        min    (0.0 0.0 0.00);
+        max    (0.080 0.095 0.100);
+    }
+};
+
+// p5t1_wonozzle = Bounding Box : (-0.471004 -0.290112 4) (77.9496 93.931 96.037)
+
+castellatedMeshControls
+{
+    maxLocalCells 4000000; // max number of cells per processor during refinement,  This is basically the number of cells that fit on a processor. If you choose this too small it will do just more refinement iterations to obtain a similar mesh. The optimum value is between 3-5 million cells
+
+    maxGlobalCells 8000000; // max number of all cells before cell removal, Overall cell limit (approximately). Refinement will stop immediately upon reaching this number so a refinement level might not complete.The final number of cells might be less. The optimum value is between 10-15 million cells. (for an expected large mesh size the meshing job with higher processors (higher RAM) should be selected e.g. 16 or 32
+
+    minRefinementCells 5; //  the surface refinement loop might spend lots of iterations refining just a few cells, to avoid that cell refinement procedure is stop if the number of cells to be refined is less then this value, This setting will cause refinement to stop if..
+
+    maxLoadUnbalance 0.10; // maximum processor imbalance during refinement, i.e., if the number of vertices on one processor differs from average number of vertices on another processor by more than maxLoadUnbalance x100, then re-balancing algorithm is performed
+
+    nCellsBetweenLevels 3; // number of cells between different refinement levels, For intermediate size of mesh a value of 3 is recommended.
+
+    resolveFeatureAngle 10; // Local curvature and feature angle refinement, To control curvature refinement 0: mark the whole surface for refinement 180: do not mark any STL face for refinement // 0 = crashes
+
+    features //Explicit feature edge refinement, To enable and control edge refinement level
+    (
+        {
+            file "combined.eMesh"; //feature edges of your geometry
+            scale 0.001;
+            level 0;
+        }
+    );
+
+    refinementSurfaces // includes levels of refinement, patch type and for the given geometry part
+    {
+        inlet
+        {
+            level (0 0);
+            patchInfo
+            {
+              type patch;
+            }
+        }
+        outlet
+        {
+            level (0 0);
+            patchInfo
+            {
+              type patch;
+            }
+        }
+        wall
+        {
+            level (0 0);
+            patchInfo
+            {
+              type wall;
+            }
+        }
+    }
+    
+    refinementRegions
+     {
+        box1
+         {
+             mode inside;
+             levels ((1.0 2));         // refinement level 4 (1.0 entry ignored)
+        }
+    }
+
+    locationInMesh (0.0404 0.0855 0.0117);
+    //p5t1=(0.0404 0.0855 0.0117)
+
+    allowFreeStandingZoneFaces false; // Allowing zone faces that share the same owner and neighbour cell zone. Not used if there are no faceZones.
+}
+
+snapControls
+{
+    //Displacing the cell vertices of the castellated mesh onto the object’s surface.
+    //Then, relaxing the internal mesh due to the displaced vertices.
+    //Checking for any bad cells that violate the mesh quality parameters.
+    //Re-iterate the process until the quality standards are achieved.
+
+    //- Number of patch smoothing iterations before finding correspondence to surface, This option changes how many times the exterior (the boundary wall) should be iterated. The more iterations, the smoother the mesh will become, 5 recommended
+    nSmoothPatch 5;
+
+    //- Relative distance for points to be attracted by surface feature point or edge. True distance is this factor times local maximum edge length. This option changes how long distance the program should look for a point to snap, the distance will be the number put in "tolerance" * "size of the mesh".
+    tolerance 4.0; // For better snapping a value between 2-5 is recommended.
+
+    //- Number of mesh displacement relaxation iterations. The higher the value the better the body fitted mesh. The default value is 30. If you are having problems with the mesh quality (related to the snapping step), try to increase this value to 300. Have in mind that this will increase the meshing time.
+    nSolveIter 300; // A value of 300 is recommended.
+
+    // Maximum number of snapping relaxation iterations. This option changes how many times the mesh will run a relaxing script that removes some bad mesh point, however snappyHexMesh should stop before, when the correct mesh is created
+    nRelaxIter 8; // A value between 5-8 is recommended.
+
+    //  To avoid sharp edges problems it is possible to take advantage of extracted feature edge in castellatedMeshControls and attract points to features within snapping iterative process. Number of feature edge snapping iterations. Leave out altogether to disable. Controls the number of morph (change smoothly from one image to another by small gradual steps) iterations within main snapping iterative process, to attract mesh points to surface and avoid sharp edges problems. Increase this value to improve the quality of the edge features.
+    nFeatureSnapIter 10;
+
+    //Detect (geometric only) features by sampling the surface (default=false). identify surface geometric features using resolveFeatureAngle keyword directly from stl file
+    implicitFeatureSnap false;
+
+    // Use castellatedMeshControls::features (default = true), take advantage of extracted feature edges and attract points, explicit method offers greater control and, from our experience, provides slightly better feature conformation
+    explicitFeatureSnap true;
+
+    multiRegionFeatureSnap false;
+}
+
+addLayersControls
+{
+    // 1. the mesh is projected back from the surface by a specified thickness in the direction normal to the surface.
+    // 2. solve for relaxation of the internal mesh with the latest projected boundary vertices;
+    // 3. check if validation criteria are satisfied otherwise reduce the projected thickness and return to 2; if validation cannot be satisfied for any thickness, do not insert layers;
+    // 4. if the validation criteria can be satisfied, insert mesh layers;
+    // 5. the mesh is checked again; if the checks fail, layers are removed and we return to 2.
+
+    // To calculate a reasonable finalLayerThickness, take the length of one cubic element from your blockMesh mesh and divide by 2 power (refinement) or length/2^2. This will give you an estimation of the length of the Snap mesh individual element. Take a percentage of this length (10-15%). By setting it to true, the finalLayerThickness is divided by the length of the patch, in other words the last boundary layer will be 0.5/patch length.
+
+    // true – sizes relative to the cell size next to the patch for which adding layers is defined, false – sizes in absolute values
+    relativeSizes false; //true;//false;
+
+    layers
+    {
+        wall
+        {
+            nSurfaceLayers 6;
+        }
+    }
+
+    expansionRatio 1.3;
+
+    // Wanted thickness of final added cell layer. If multiple layers
+    // is the thickness of the layer furthest away from the wall.
+    // Relative to undistorted size of cell outside layer.
+    // See relativeSizes parameter.
+    //finalLayerThickness 1.5;
+    firstLayerThickness 0.0000150;
+
+    // Minimum thickness of cell layer. If for any reason layer
+    // cannot be above minThickness do not add layer.
+    // Relative to undistorted size of cell outside layer.
+    minThickness 0.000011;
+
+    // If points get not extruded do nGrow layers of connected faces that are also not grown. This helps convergence of the layer addition process close to features.
+    nGrow 0;
+
+    // This specifies the maximum angle of a surface features after which the meshing engine does not add a layer at this location. Increasing this value (say to 180 degrees) is suitable to have layers over sharp corners.
+    featureAngle 180;
+
+    // Allow the sliding of points on the patch without the layer grown if angle to the patch extrusion direction is larger. The default value is one half of the feature angle.// At non-patched sides allow mesh to slip if extrusion direction makes, angle larger than slipFeatureAngle.
+    slipFeatureAngle 80; // An optimum value between 70-80 is recommended to limit sliding of layers.
+
+    // Overall max number of layer addition iterations. The mesher will exit if it reaches this number of iterations;
+    nLayerIter 60; // A value of 50-60 is recommended
+
+    nRelaxIter 10;
+
+    // Number of patch normal smoothing iterations; typically low number of iterations is required
+    nSmoothSurfaceNormals 4;
+
+    // Number of smoothing iterations of interior mesh movement direction
+    nSmoothNormals 3; // A value of 3 is recommended.
+
+    // Smooth layer thickness over the surface patches; typically 10 iterations are sufficient
+    nSmoothThickness 10;
+
+    // This option changes the maximum allowable value of aspect ratio. Sometimes (expecially in corners) the layers must be generated over highly warped cells. Stop layer growth on highly warped cells
+    maxFaceThicknessRatio 1.3;
+
+    // Reduce layer growth where ratio thickness to medial distance is large
+    maxThicknessToMedialRatio 0.3;
+
+    // Angle used to pick up medial axis points
+    // Note: changed(corrected) w.r.t 1.7.x! 90 degrees corresponds to 130 in 1.7.x.
+    minMedialAxisAngle 90;
+
+    // Create buffer region for new layer terminations
+    nBufferCellsNoExtrude 0;
+
+    //// Motion solver instead of default medial axis
+    //
+    //    //- Use displacementMotionSolver to shrink mesh
+    //    meshShrinker displacementMotionSolver;
+    //
+    //    //- Use laplacian for shrinking
+    //    solver displacementLaplacian;
+    //
+    //    displacementLaplacianCoeffs
+    //    {
+    //        diffusivity quadratic inverseDistance ("m.*");
+    //    }
+// Medial axis analysis
+// Patch displacement
+// Mesh shrinking
+
+}
+
+meshQualityControls
+{
+    //- Maximum non-orthogonality allowed. Set to 180 to disable.
+    maxNonOrtho 65;
+
+    //- Max skewness allowed. Set to <0 to disable.
+    maxBoundarySkewness 20;
+    maxInternalSkewness 4;
+
+    //- Max concaveness allowed. Is angle (in degrees) below which concavity
+    //  is allowed. 0 is straight face, <0 would be convex face.
+    //  Set to 180 to disable.
+    maxConcave 80;
+
+    //- Minimum pyramid volume. Is absolute volume of cell pyramid.
+    //  Set to a sensible fraction of the smallest cell volume expected.
+    //  Set to very negative number (e.g. -1E30) to disable.
+    minVol 1e-16;
+
+    //- Minimum quality of the tet formed by the face-centre
+    //  and variable base point minimum decomposition triangles and
+    //  the cell centre.  Set to very negative number (e.g. -1E30) to
+    //  disable.
+    //     <0 = inside out tet,
+    //      0 = flat tet
+    //      1 = regular tet
+    //  1e-15 (small positive) to enable tracking, -1e+30 (large negative) for best layer insertion
+    minTetQuality   1e-15; //-1e30;
+
+    //- Minimum face twist. Set to <-1 to disable. dot product of face normal
+    //  and face centre triangles normal
+    minTwist 0.02;
+
+    minArea -1; // Minimum face area;
+
+    //- Minimum normalised cell determinant
+    //  1 = hex, <= 0 = folded or flattened illegal cell
+    minDeterminant 0.001;
+
+    //- Relative position of face in relation to cell centres (0.5 for orthogonal mesh) (0 -> 0.5)
+    minFaceWeight 0.02;
+
+    //- minVolRatio (0 -> 1)
+    minVolRatio 0.01;
+
+    //must be >0 for Fluent compatibility
+    minTriangleTwist -1;
+
+    //- minFaceWeight (0 -> 0.5)
+    minFaceWeight 0.02;
+
+    //- Number of error distribution iterations
+    nSmoothScale 4;
+
+    //- Amount to scale back displacement at error points
+    errorReduction 0.75;
+
+}
+
+//Note also that the Snap mesh must be displace in order to make room for the Addlayer mesh. The internal displacement of the points are limited by the mesh quality parameters that control the quality of the elements.
+
+//-You can try and set the relativeSize to false. This way all you declared values for the boundary layers are not relative but true values.
+
+//-Lower the slipFeatureAngle to say 10. This will control of the points are extruded between patches.
+
+//-Lower the minMedianAxisAngle to 5.
+
+// Good layer coverage seems to require sufficient mesh refinement. It is not possible to achieve good layer coverage with a coarse mesh .
+
+// ************************************************************************* //

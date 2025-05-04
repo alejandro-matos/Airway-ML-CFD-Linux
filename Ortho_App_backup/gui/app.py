@@ -49,12 +49,11 @@ class OrthoCFDApp(ctk.CTk):
         """Configure the main window settings"""
         self.title(APP_SETTINGS["TITLE"])
         # self.geometry("1000x750")
-        self.minsize(*APP_SETTINGS["MIN_SIZE"])
+        # self.minsize(*APP_SETTINGS["MIN_SIZE"])
 
-        # Fullscreen with window decorations
-        self.attributes("-zoomed", True)  # For Linux TK
+        # Try removing window decorations
+        self.attributes("-fullscreen", True)  
 
-        self.resizable(True, True)
         ctk.set_appearance_mode("dark")
         ctk.set_default_color_theme(APP_SETTINGS["THEME"])
         self.setup_icon()

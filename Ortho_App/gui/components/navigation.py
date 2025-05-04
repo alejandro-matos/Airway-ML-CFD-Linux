@@ -1,5 +1,5 @@
 import customtkinter as ctk
-from config.settings import UI_SETTINGS
+from gui.config.settings import UI_SETTINGS
 
 class NavigationFrame(ctk.CTkFrame):
     """A navigation frame with back/next buttons and labels, ensuring no duplicates"""
@@ -49,8 +49,8 @@ class NavigationFrame(ctk.CTkFrame):
             frame,
             text=button_text,
             command=command,
-            width=120,
-            height=40,
+            width=150,
+            height=50,
             font=UI_SETTINGS["FONTS"]["BUTTON_TEXT"],
             fg_color=UI_SETTINGS["COLORS"]["NAV_BUTTON"],
             hover_color=UI_SETTINGS["COLORS"]["NAV_HOVER"]
@@ -105,8 +105,8 @@ class NavigationFrame2(ctk.CTkFrame):
             frame,
             text=button_text,
             command=command,
-            width=120,
-            height=40,
+            width=150,
+            height=50,
             font=UI_SETTINGS["FONTS"]["BUTTON_TEXT"],
             fg_color=UI_SETTINGS["COLORS"]["NAV_BUTTON"],
             hover_color=UI_SETTINGS["COLORS"]["NAV_HOVER"]

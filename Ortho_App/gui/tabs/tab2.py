@@ -539,15 +539,10 @@ class Tab2Manager:
         drive_frame = ctk.CTkFrame(dlg, fg_color=UI_SETTINGS["COLORS"]["SECTION_ACTIVE"])
         drive_frame.grid(row=0, column=0, columnspan=2, sticky="ew", padx=10, pady=10)
         
-        # Use large fonts for drive selection
-        large_font = ("Arial", 18, "bold")
-        button_font = ("Arial", 16, "bold")
-        dropdown_font = ("Arial", 16)  # Font for dropdown items
-        
         ctk.CTkLabel(
             drive_frame, 
-            text="Select Drive:", 
-            font=large_font
+            text="Select a drive from the drop down menu \nand click on 'Scan Drive':", 
+            font=UI_SETTINGS["FONTS"]["CATEGORY"]
         ).pack(side="left", padx=(20, 10), pady=15)
         
         # Create drive dropdown
@@ -558,10 +553,15 @@ class Tab2Manager:
         
         # Create a custom styled ttk.Combobox to get bigger dropdown font
         style = ttk.Style(dlg)
-        style.configure("BigCombo.TCombobox", padding=5)
+        style.theme_use('clam')   # clam usually supports arrowsize
+        style.configure(
+            "BigCombo.TCombobox",
+            padding=5,            # your existing padding
+            arrowsize=30          # ← make the arrow bigger (pixels)
+        )
         
         # Configure the dropdown list font - this is critical for readability
-        dlg.option_add("*TCombobox*Listbox.font", dropdown_font)
+        dlg.option_add("*TCombobox*Listbox.font", UI_SETTINGS["FONTS"]["NORMAL"])
         
         # Create the Combobox with the big style
         drive_dropdown = ttk.Combobox(
@@ -570,28 +570,19 @@ class Tab2Manager:
             textvariable=drive_var,
             width=20,
             style="BigCombo.TCombobox",
-            font=dropdown_font,  # This sets the entry part font
+            font=UI_SETTINGS["FONTS"]["NORMAL"],  # This sets the entry part font
         )
         
         # Apply additional styling to make it larger
         drive_dropdown.pack(side="left", padx=10, pady=15)
         
-        # Status label with larger font
-        status_label = ctk.CTkLabel(
-            drive_frame, 
-            text="Select a drive and click Scan", 
-            font=("Arial", 16),
-            text_color=UI_SETTINGS["COLORS"]["TEXT_HIGHLIGHT"]
-        )
-        status_label.pack(side="right", padx=20, pady=15)
-        
         # Larger scan button
         scan_button = ctk.CTkButton(
             drive_frame, 
             text="SCAN DRIVE", 
-            font=button_font,
+            font=UI_SETTINGS["FONTS"]["CATEGORY"],
             width=160,
-            height=40,
+            height=50,
             fg_color=UI_SETTINGS["COLORS"]["REG_BUTTON"],
             hover_color=UI_SETTINGS["COLORS"]["REG_HOVER"]
         )
@@ -656,7 +647,7 @@ class Tab2Manager:
             # Get selected drive 
             drive_name = drive_var.get()
             if not drive_name:
-                status_label.configure(text="⚠️ Please select a drive first")
+                self.folder_status_label.configure(text="⚠️ Please select a drive first")
                 return
                 
             # Find the full path matching this drive name
@@ -667,12 +658,15 @@ class Tab2Manager:
                     break
                     
             if not drive_path:
-                status_label.configure(text="⚠️ Drive not found")
+                self.folder_status_label.configure(text="⚠️ Drive not found")
                 return
+            
+            # Remember this drive location for later
+            self.app.selected_drive_path = drive_path
                 
             # Disable scan button and update status
             scan_button.configure(state="disabled", text="SCANNING...")
-            status_label.configure(text="⏳ Scanning drive for image series...")
+            self.folder_status_label.configure(text="⏳ Scanning drive for image series...")
             dlg.update()  # Update UI to show status change
             
             # Use a thread to scan the drive without freezing UI
@@ -778,7 +772,7 @@ class Tab2Manager:
                 # Update status and re-enable scan button
                 nifti_count = sum(1 for item in items if not item["is_folder"])
                 dicom_count = sum(1 for item in items if item["is_folder"])
-                status_label.configure(
+                self.folder_status_label.configure(
                     text=f"✅ Found {dicom_count} DICOM series and {nifti_count} NIfTI files"
                 )
                 scan_button.configure(state="normal", text="SCAN DRIVE")

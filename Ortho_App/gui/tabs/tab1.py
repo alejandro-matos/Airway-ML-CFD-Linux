@@ -8,6 +8,7 @@ import tkinter as tk
 import tkinter.messagebox as messagebox
 from gui.utils.basic_utils import AppLogger
 from gui.config.settings import APP_SETTINGS, UI_SETTINGS, PATH_SETTINGS
+from gui.components.buttons import _create_info_button
 import json
 
 # Build these once, at import time
@@ -146,16 +147,20 @@ class Tab1Manager:
     def _create_description_section(self):
         """Create the description section with app information"""
         description_text = (
-            "Ortho CFD provides orthodontists with precise nasal airway pressure measurements derived from patient 3D scans. "
-            "This clinical tool helps quantify breathing obstruction severity and evaluate treatment outcomes.\n\n"
+            "Ortho CFD provides orthodontists with upper airway pressure measurements derived from patient 3D scans. "
+            "This clinical tool helps quantify breathing obstruction severity and evaluate treatment outcomes.\n"
+            "WARNING: Scans must be aligned with the septum to ensure accurate and successful simulations.\n\n"
             "• Upload patient scans in DICOM (.dcm) or NIfTI (.nii.gz) format\n"
             "• Receive detailed pressure differential measurements across the upper airway\n"
-            "• Generate concise and informative CFD analysis reports\n"
-            "• Track treatment progress with comparative pre/post measurements\n\n"
+            "• Generate concise and informative CFD analysis reports\n\n"
+
             "Developed at the University of Alberta using medical imaging technology and validated computational models.\n\n"
-            "For clinical support or technical inquiries:\n"
+            "For clinical support:\n"
+            "Dr. Silvia Gianoni-Capenakas - capenaka@ualberta.ca\n"
+            "Dr. Manuel Lagravere-Vich - manuel@ualberta.ca\n\n"
+
+            "For technical inquiries:\n"
             "Dr. Carlos F. Lange - clange@ualberta.ca\n"
-            "Dr. Manuel Lagravere - manuel@ualberta.ca"
         )
 
         description_label = ctk.CTkLabel(
@@ -164,7 +169,7 @@ class Tab1Manager:
             font=UI_SETTINGS["FONTS"]["NORMAL"],
             text_color=UI_SETTINGS["COLORS"]["TEXT_LIGHT"],
             justify="center",
-            wraplength=700  # Ensures text is readable on wider screens
+            wraplength=1000  # Ensures text is readable on wider screens
         )
         description_label.pack(pady=UI_SETTINGS["PADDING"]["MEDIUM"])
     
@@ -193,6 +198,13 @@ class Tab1Manager:
             font=UI_SETTINGS["FONTS"]["NORMAL"]
         )
         self.username_entry.pack(side="left", padx=UI_SETTINGS["PADDING"]["SMALL"])
+
+        # help‑tooltip beside the username field
+        info_button = _create_info_button(
+            username_frame,
+            "Please enter your last name as your username (no spaces or upper case letters)"
+        )
+        info_button.pack(side="right", padx=UI_SETTINGS["PADDING"]["SMALL"])
 
     def _create_next_button(self):
         """Create a well-sized 'Next' button with a modern design"""
@@ -253,16 +265,23 @@ class Tab1Manager:
             left_logo_path = os.path.join(PATH_SETTINGS["ICONS_DIR"], "CFDLab-blogo2.png")
             left_logo_img = Image.open(left_logo_path)
             
-            # Resize logo if needed
-            left_logo_size = (180, 70)  # Adjust size as needed
-            left_logo_img = left_logo_img.resize(left_logo_size, Image.LANCZOS)
-            
-            # Convert to CustomTkinter image
-            left_ctk_img = CTkImage(light_image=left_logo_img, dark_image=left_logo_img, size=left_logo_size)
-            
+            # Desired new height
+            new_height = 45
+            # Calculate the new width to maintain aspect ratio
+            original_width, original_height = left_logo_img.size
+            aspect_ratio = original_width / original_height
+            new_width = int(new_height * aspect_ratio)
+
+            # Resize with the new dimensions
+            resized_img = left_logo_img.resize((new_width, new_height), Image.LANCZOS)
+
+            # Convert to CTkImage
+            left_ctk_img = CTkImage(light_image=resized_img, dark_image=resized_img, size=(new_width, new_height))
+
             # Create label with the image
             left_logo_label = ctk.CTkLabel(bottom_frame, image=left_ctk_img, text="")
             left_logo_label.pack(side="left", padx=UI_SETTINGS["PADDING"]["MEDIUM"])
+
         except Exception as e:
             self.logger.log_error(f"Failed to load left corner logo: {str(e)}")
         
@@ -275,13 +294,19 @@ class Tab1Manager:
             right_logo_path = os.path.join(PATH_SETTINGS["ICONS_DIR"], "UpperAirwaySegmentator3.png")
             right_logo_img = Image.open(right_logo_path)
             
-            # Resize logo if needed
-            right_logo_size = (120, 120)  # Adjust size as needed
-            right_logo_img = right_logo_img.resize(right_logo_size, Image.LANCZOS)
-            
-            # Convert to CustomTkinter image
-            right_ctk_img = CTkImage(light_image=right_logo_img, dark_image=right_logo_img, size=right_logo_size)
-            
+            # Desired new height
+            new_height = 80
+            # Calculate the new width to maintain aspect ratio
+            original_width, original_height = right_logo_img.size
+            aspect_ratio = original_width / original_height
+            new_width = int(new_height * aspect_ratio)
+
+            # Resize with the new dimensions
+            resized_img = right_logo_img.resize((new_width, new_height), Image.LANCZOS)
+
+            # Convert to CTkImage
+            right_ctk_img = CTkImage(light_image=resized_img, dark_image=resized_img, size=(new_width, new_height))
+
             # Create label with the image
             right_logo_label = ctk.CTkLabel(bottom_frame, image=right_ctk_img, text="")
             right_logo_label.pack(side="right", padx=UI_SETTINGS["PADDING"]["MEDIUM"])
@@ -341,7 +366,6 @@ class Tab1Manager:
             
             # Position the panel to the left of the button
             # relx=1.0 means right edge, then offset by button_width + a small gap
-            # IMPORTANT: No width/height in place(), only in the constructor
             self.contributors_panel.place(
                 relx=1.0, 
                 rely=0.0, 
@@ -420,39 +444,39 @@ class Tab1Manager:
         name_label = ctk.CTkLabel(
             card,
             text=contributor["name"],
-            font=UI_SETTINGS["FONTS"]["SUBHEADER"],
+            font=UI_SETTINGS["FONTS"]["CONTRIB_NAME"],
             text_color=UI_SETTINGS["COLORS"]["TEXT_DARK"]
         )
-        name_label.pack(padx=10, pady=(10, 5), anchor="w")
+        name_label.pack(padx=10, pady=(5, 2), anchor="w")
         
         # Title
         title_label = ctk.CTkLabel(
             card,
             text=contributor["title"],
-            font=UI_SETTINGS["FONTS"]["NORMAL"],
+            font=UI_SETTINGS["FONTS"]["NORMAL_ITALIC"],
             text_color=UI_SETTINGS["COLORS"]["TEXT_DARK"]
         )
-        title_label.pack(padx=10, pady=2, anchor="w")
+        title_label.pack(padx=10, pady=1, anchor="w")
         
         # Department
         if "department" in contributor:
             dept_label = ctk.CTkLabel(
                 card,
                 text=contributor["department"],
-                font=UI_SETTINGS["FONTS"]["NORMAL_ITALIC"],
+                font=UI_SETTINGS["FONTS"]["SMALL"],
                 text_color=UI_SETTINGS["COLORS"]["TEXT_DARK"]
             )
-            dept_label.pack(padx=10, pady=2, anchor="w")
+            dept_label.pack(padx=10, pady=1, anchor="w")
         
         # Email 
         if "email" in contributor:
             email_label = ctk.CTkLabel(
                 card,
                 text=contributor["email"],
-                font=UI_SETTINGS["FONTS"]["SMALL"],
+                font=UI_SETTINGS["FONTS"]["SMALL_CONTR"],
                 text_color=UI_SETTINGS["COLORS"]["LINK"]  # Keeps the same color for visual consistency
             )
-            email_label.pack(padx=10, pady=(2, 10), anchor="w")
+            email_label.pack(padx=10, pady=(1, 5), anchor="w")
 
     def _load_contributors_data(self):
         """Load contributors data from a JSON file"""

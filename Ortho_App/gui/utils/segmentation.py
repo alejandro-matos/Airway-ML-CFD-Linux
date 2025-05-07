@@ -9,6 +9,7 @@ from pathlib import Path
 import re
 from gui.utils.basic_utils import AppLogger
 import time
+from scipy.spatial import ConvexHull
 
 class AirwaySegmentator:
     def __init__(self, input_file=None, input_folder=None, output_folder=None, callback=None, input_type="dicom"):
@@ -27,6 +28,9 @@ class AirwaySegmentator:
         self.input_type = input_type.lower()
         self.current_subprocess = None
         self.logger = AppLogger()
+
+        # For cancelling the procedure
+        self.cancel_event = threading.Event()
         
         # Create necessary subfolders
         self.nifti_folder = self.output_folder / "nifti"
@@ -47,6 +51,9 @@ class AirwaySegmentator:
         percentage_pattern = re.compile(r'^\d+%')
         
         while True:
+            # bail out if user hit cancel
+            if self.cancel_event.is_set():
+                break
             if process.poll() is not None:
                 break
                 
@@ -94,7 +101,7 @@ class AirwaySegmentator:
     def run_nnunet_prediction(self):
         """Run nnUNet prediction on the NIfTI file with real-time output"""
         try:
-            self.update_progress("Starting nnUNet prediction...", 30)
+            self.update_progress("Starting nnUNet prediction...", 30, "Starting nnUNet prediction...")
             
             # Create subprocess with pipe for output
             process = subprocess.Popen(
@@ -138,35 +145,45 @@ class AirwaySegmentator:
                     process.stderr
                 )
             
-            # Rename prediction file to add _pred suffix
-            pred_files = list(self.prediction_folder.glob('*.nii.gz'))
-            if pred_files:
-                old_path = pred_files[0]
-                new_name = old_path.stem.replace('.nii', '') + '_pred.nii.gz'
-                new_path = old_path.parent / new_name
+            # Rename prediction file to add _pred suffix 
+            pred_folder = Path(self.prediction_folder)
+            for old_path in pred_folder.glob('*.nii.gz'):
+                # remove .gz then .nii
+                noext = old_path.with_suffix("").with_suffix("")   # → Path(".../case")
+                new_name = f"{noext.name}_pred.nii.gz"
+                new_path = noext.parent / new_name
+
+                if new_path.exists() and not new_path.samefile(old_path):
+                    new_path.unlink()
+
                 old_path.rename(new_path)
+                # return the _new_ path
+                nifti_path = new_path
             
             # Remove nnUNet internal files (*.json)
             for json_file in self.prediction_folder.glob('*.json'):
                 json_file.unlink()
             
-            self.update_progress("nnUNet prediction completed", 50)
-            return str(new_path)
-            
+            self.update_progress("nnUNet prediction completed", 50, "nnUNet prediction completed")
+            return str(nifti_path)
+
         except Exception as e:
             self.logger.log_error(f"Error in nnUNet prediction: {e}")
             raise
                 
     def cancel_processing(self):
         """Cancel the current processing if any subprocess is running"""
+        # tell Python loops to stop
+        self.cancel_event.set()
+
+        # kill any live subprocess
         if self.current_subprocess and self.current_subprocess.poll() is None:
             self.current_subprocess.terminate()
             try:
                 self.current_subprocess.wait(timeout=5)
             except subprocess.TimeoutExpired:
                 self.current_subprocess.kill()
-            return True
-        return False
+        return True
 
     def convert_dicom_to_nifti(self):
         """
@@ -174,7 +191,6 @@ class AirwaySegmentator:
         The output file is named based on the input folder name (e.g. ABC.nii.gz).
         """
         try:
-            self.update_progress("Converting DICOM to NIfTI...", 10)
             self.logger.log_info("Converting DICOM to NIfTI...")
             reader = sitk.ImageSeriesReader()
             dicom_names = reader.GetGDCMSeriesFileNames(str(self.input_folder))
@@ -198,7 +214,6 @@ class AirwaySegmentator:
     def calculate_volume(self, nifti_path):
         """Calculate volume of the segmented airway"""
         try:
-            # self.update_progress("Calculating airway volume...", 70)
             
             nifti_img = nib.load(nifti_path)
             data = nifti_img.get_fdata()
@@ -221,7 +236,7 @@ class AirwaySegmentator:
     def create_stl(self, nifti_path, threshold_value=1, decimate=True, decimate_target_reduction=0.10):
         """Convert segmentation to STL format with advanced smoothing and transformations"""
         try:
-            self.update_progress("Calculating airway volume and creating 3D model...", 85)
+            self.update_progress("Calculating airway volume and creating 3D model...", 85, "Calculating airway volume and creating 3D model...")
 
             # Extract filename without both extensions (.nii.gz)
             nifti_path = Path(nifti_path)
@@ -260,13 +275,13 @@ class AirwaySegmentator:
             cleaner.Update()
             output_polydata = cleaner.GetOutput()
 
-            # Improve triangle quality
-            triangle_filter = vtk.vtkTriangleFilter()
-            triangle_filter.SetInputData(output_polydata)
-            triangle_filter.PassLinesOff()
-            triangle_filter.PassVertsOff()
-            triangle_filter.Update()
-            output_polydata = triangle_filter.GetOutput()
+            # # Improve triangle quality - deemed not necessary because mesh is dense enough to avoid too much tirangle distortion
+            # triangle_filter = vtk.vtkTriangleFilter()
+            # triangle_filter.SetInputData(output_polydata)
+            # triangle_filter.PassLinesOff()
+            # triangle_filter.PassVertsOff()
+            # triangle_filter.Update()
+            # output_polydata = triangle_filter.GetOutput()
 
             # Ensure model is completely closed and manifold
             connected_filter = vtk.vtkPolyDataConnectivityFilter()
@@ -278,29 +293,29 @@ class AirwaySegmentator:
             # Apply smoothing
             smoothing_filter = vtk.vtkSmoothPolyDataFilter()
             smoothing_filter.SetInputData(output_polydata)
-            smoothing_filter.SetNumberOfIterations(30)
+            smoothing_filter.SetNumberOfIterations(25)
             smoothing_filter.SetRelaxationFactor(0.2)  
             smoothing_filter.FeatureEdgeSmoothingOff()
             smoothing_filter.BoundarySmoothingOn()
             smoothing_filter.Update()
             output_polydata = smoothing_filter.GetOutput()
 
-            # Apply decimation
-            decimator = vtk.vtkDecimatePro()
-            decimator.SetInputData(output_polydata)
-            decimator.SetTargetReduction(decimate_target_reduction)
-            decimator.PreserveTopologyOn()
-            decimator.BoundaryVertexDeletionOff()
-            decimator.SplittingOff()
-            decimator.Update()
-            output_polydata = decimator.GetOutput()
+            # # Apply decimation? Not worth it because the triangles get distorted
+            # decimator = vtk.vtkDecimatePro()
+            # decimator.SetInputData(output_polydata)
+            # decimator.SetTargetReduction(decimate_target_reduction)
+            # decimator.PreserveTopologyOn()
+            # decimator.BoundaryVertexDeletionOff()
+            # decimator.SplittingOff()
+            # decimator.Update()
+            # output_polydata = decimator.GetOutput()
             
             # Apply Windowed Sinc smoothing with conservative settings
             smoother = vtk.vtkWindowedSincPolyDataFilter()
             smoother.SetInputData(output_polydata)
-            smoother.SetNumberOfIterations(10)
+            smoother.SetNumberOfIterations(20)
             smoother.FeatureEdgeSmoothingOff()
-            smoother.SetFeatureAngle(120)
+            smoother.SetFeatureAngle(60)
             smoother.SetPassBand(0.2)
             smoother.SetBoundarySmoothing(True)
             smoother.Update()
@@ -363,7 +378,12 @@ class AirwaySegmentator:
             # Generate STL Preview
             preview_path = self.generate_stl_preview(str(stl_path))
 
-            return {'stl_path': str(stl_path), 'preview_path': preview_path}
+            # Minimum cross section computation
+            min_csa = self.approx_min_cross_section_area(clean_polydata, num_slices=50)
+            with open(self.output_folder/"min_csa.txt", "w") as f:
+                f.write(f"Min CSA (approx): {min_csa:.2f} units²\n")
+
+            return {'stl_path': str(stl_path), 'preview_path': preview_path, 'min_csa': min_csa}
             
         except Exception as e:
             self.logger.log_error(f"Error in STL creation: {e}")
@@ -375,32 +395,38 @@ class AirwaySegmentator:
             if self.input_type == "nifti":
                 # Use the provided NIfTI file directly
                 nifti_path = Path(self.input_file)
-                self.update_progress("Using provided NIfTI file...", 10)
+                self.update_progress("Using provided NIfTI file...", 10, "Using provided NIfTI file...")
                 # Copy NIfTI file into expected folder
                 target_path = self.nifti_folder / (nifti_path.stem + ".nii.gz")
                 target_path.write_bytes(nifti_path.read_bytes())
                 nifti_path = target_path
             else:
                 # DICOM input — convert to NIfTI
-                self.update_progress("Converting DICOM to NIfTI...", 10)
+                self.update_progress("Converting DICOM to NIfTI...", 10, "Converting DICOM to NIfTI...")
                 nifti_path = self.convert_dicom_to_nifti()
+                if self.cancel_event.is_set():
+                   raise RuntimeError("User cancelled during DICOM→NIfTI")
 
             # Run nnUNet prediction
             pred_path = self.run_nnunet_prediction()
+            if self.cancel_event.is_set():
+                   raise RuntimeError("User cancelled during nnUNet prediction")
 
             # Calculate volume
             volume = self.calculate_volume(pred_path)
+            if self.cancel_event.is_set():
+                   raise RuntimeError("User cancelled during volume computation")
 
             # Create STL
             stl_result = self.create_stl(pred_path)
-
-            self.update_progress("Processing complete!", 100)
+            if self.cancel_event.is_set():
+                   raise RuntimeError("User cancelled during STL creation")
 
             return {
                 'nifti_path': str(nifti_path),
                 'prediction_path': pred_path,
                 'volume': volume,
-                'stl_path': stl_result  # Dict with 'stl_path' and 'preview_path'
+                'stl_path': stl_result  # Dict with 'stl_path', 'preview_path' adn min_csa
             }
 
         except Exception as e:
@@ -551,4 +577,38 @@ class AirwaySegmentator:
         except Exception as e:
             self.logger.log_error(f"Error generating STL preview: {str(e)}")
             return None
+    
+    def approx_min_cross_section_area(self, polydata, num_slices=50):
+        """
+        Placeholder: approximate the minimum cross‐sectional area in Z by
+        slicing the mesh into `num_slices` and taking the smallest bounding‑box.
+        """
+        # 1) grab all mesh vertices
+        n_pts = polydata.GetNumberOfPoints()
+        pts = np.array([polydata.GetPoint(i) for i in range(n_pts)])
+        if pts.size == 0:
+            return 0.0
+
+        z = pts[:, 2]
+        zmin, zmax = z.min(), z.max()
+        if zmax <= zmin:
+            return 0.0
+
+        edges = np.linspace(zmin, zmax, num_slices + 1)
+        min_area = float('inf')
+
+        for i in range(num_slices):
+            mask = (z >= edges[i]) & (z < edges[i+1])
+            slice_xy = pts[mask][:, :2]
+            if slice_xy.shape[0] < 3:
+                continue
+
+            # --- Simple bounding‐box area --- 
+            dx = np.ptp(slice_xy[:, 0])   # max(slice_xy[:,0]) - min(...)
+            dy = np.ptp(slice_xy[:, 1])
+            area = dx * dy
+
+            min_area = min(min_area, area)
+
+        return min_area if min_area != float('inf') else 0.0
     

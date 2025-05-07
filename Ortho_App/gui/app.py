@@ -101,9 +101,12 @@ class OrthoCFDApp(ctk.CTk):
         self.dob = tk.StringVar()
         self.scandate = tk.StringVar()
         self.username_var = tk.StringVar()
+        # Whenever username_var changes, call the sanitization script
+        self.username_var.trace_add("write", self._sanitize_username)
         self.patient_age_var = tk.StringVar(value="0")
         self.patient_doctor_var = tk.StringVar()
         # self.folder_name_var = None
+        self.selected_drive_path = tk.StringVar()
         
         # Analysis variables
         self.analysis_option = tk.StringVar(value="Select Analysis Type")
@@ -117,6 +120,15 @@ class OrthoCFDApp(ctk.CTk):
         
         # State flags
         self.going_home = False
+    
+    def _sanitize_username(self, *args):
+        """Force username_var to always be lowercase"""
+        current = self.username_var.get()
+        lower   = current.lower()
+        if current != lower:
+            # setting to lower will re‑trigger this callback once,
+            # but on the second call current==lower so it won’t loop
+            self.username_var.set(lower)
 
     def init_tab_managers(self):
         """Initialize tab manager instances"""
@@ -153,6 +165,8 @@ class OrthoCFDApp(ctk.CTk):
         self.selected_dicom_folder = None
         self.analysis_option = tk.StringVar(value=UI_SETTINGS["PLACEHOLDERS"]["ANALYSIS_MENU"])
         self.going_home = False
+        self.selected_drive_path = tk.StringVar()
+        
 
 
     # Tab Creation Methods

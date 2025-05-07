@@ -20,7 +20,7 @@ class ProgressSection(ctk.CTkFrame):
         self.progress_frame = ctk.CTkFrame(self, fg_color="transparent")
         self.progress_frame.pack(fill="x", padx=50, pady=(0, 10))
         
-        # Progress bar that supports both determinate and indeterminate modes
+        # Progress bar that supports both determinate and indeterminate modes (only got indeterminate to work so far)
         self.progress_bar = ttk.Progressbar(
             self.progress_frame,
             mode='indeterminate',
@@ -102,7 +102,7 @@ class ProgressSection(ctk.CTkFrame):
             
             if indeterminate:
                 self.progress_bar.configure(mode='indeterminate')
-                self.progress_bar.start(10)  # Start animation, update every 10ms
+                self.progress_bar.start(50)  # Start animation, update every 50ms
             else:
                 self.progress_bar.configure(mode='determinate')
                 self.progress_bar['value'] = 0

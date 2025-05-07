@@ -120,6 +120,7 @@ def generate_airway_report(
 
         # Prepare strings
         airway_volume_str = f"{airway_volume}" if airway_volume else "Not calculated"
+        min_csa_str = f"{min_csa}" if min_csa else "Not calculated"
         press_drop_pa_str = "Not calculated"
         press_drop_kpa_str = "N/A"
         if pressure_drop_pa is not None:
@@ -134,11 +135,12 @@ def generate_airway_report(
 
         # Draw them
         c.drawString(70, y_position - 20, f"Airway Volume: {airway_volume_str} cm³")
-        c.drawString(70, y_position - 35, f"Pressure Drop: {press_drop_kpa_str} kPa ({press_drop_pa_str} Pa)")
+        c.drawString(70, y_position - 35, f"Minimum Cross-Sectional Area: {min_csa_str} cm³")
+        c.drawString(70, y_position - 50, f"Pressure Drop: {press_drop_kpa_str} kPa ({press_drop_pa_str} Pa)")
         if inlet_velocity is not None:
-            c.drawString(70, y_position - 50, f"Inlet Velocity: {inlet_velocity:.3f} m/s")
+            c.drawString(70, y_position - 65, f"Inlet Velocity: {inlet_velocity:.3f} m/s")
         if outlet_velocity is not None:
-            c.drawString(70, y_position - 65, f"Outlet Velocity: {outlet_velocity:.3f} m/s")
+            c.drawString(70, y_position - 80, f"Outlet Velocity: {outlet_velocity:.3f} m/s")
         y_position -= 105
 
         #
@@ -147,7 +149,7 @@ def generate_airway_report(
         c.setFont("Helvetica-Bold", 14)
         c.drawString(50, y_position, "Simulation Conditions:")
         c.setFont("Helvetica", 12)
-        line_height_offset = 65
+        # line_height_offset = 80
 
         c.setFont("Helvetica-Bold", 12)
         c.drawString(90, y_position - 20, "Parameter")

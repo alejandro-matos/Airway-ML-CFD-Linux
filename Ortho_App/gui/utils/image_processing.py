@@ -159,7 +159,7 @@ def load_dicom_series(folder_path: str) -> Tuple[List[pydicom.dataset.FileDatase
     for file_path in all_files:
         if is_dicom_file(file_path):
             dicom_files.append(file_path)
-            print(f"Valid DICOM: {os.path.basename(file_path)}")
+            # print(f"Valid DICOM: {os.path.basename(file_path)}") # For troubleshooting
     
     print(f"Identified {len(dicom_files)} DICOM image files")
     
@@ -251,7 +251,7 @@ def generate_slices(dicom_folder: str) -> Dict[str, Image.Image]:
     # Load DICOM series - enhanced to work with non-standard files
     slices, volume = load_dicom_series(dicom_folder)
     
-    print(f"Volume shape: {volume.shape}")
+    print(f"Scan shape: {volume.shape}")
     
     # Extract middle slices
     middle_slices = {

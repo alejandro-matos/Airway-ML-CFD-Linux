@@ -2,8 +2,8 @@
 import os
 import customtkinter as ctk
 import tkinter as tk
-from PIL import Image, ImageTk, ImageDraw, ImageFont
-from tkinter import ttk, messagebox
+from PIL import Image, ImageTk, ImageDraw, ImageFont, ImageChops
+from tkinter import ttk, messagebox, filedialog
 import time
 from pathlib import Path
 import threading
@@ -18,6 +18,8 @@ import shutil
 import vtk
 import tempfile
 import fitz  # PyMuPDF
+import getpass
+import glob
 
 
 from ..components.navigation import NavigationFrame2
@@ -33,7 +35,7 @@ from ..utils.interactive_slice_viewer import open_interactive_slice_viewer
 from gui.utils.basic_utils import AppLogger
 from gui.utils.icons import create_icon, load_ctk_icon
 
-from gui.config.settings import UI_SETTINGS, TAB4_UI,PATH_SETTINGS
+from gui.config.settings import UI_SETTINGS, TAB4_UI, TAB4_SETTINGS, PATH_SETTINGS
 
 
 class Tab4Manager:
@@ -42,9 +44,10 @@ class Tab4Manager:
         self.app = app
         self.processing_active = False
         self.logger = AppLogger()  # Initialize logger
-        self.render_images = {}  # Fix: Add this to prevent AttributeError
+        self.render_images = {}  
         self.cancel_requested = False
         self.current_process = None
+        self.approx_min_csa = None
 
         self.flow_rate = ctk.DoubleVar(value=10)
 
@@ -157,15 +160,49 @@ class Tab4Manager:
 
         # Create left and right frames
         left_frame = ctk.CTkFrame(content_frame, fg_color="transparent")
-        left_frame.grid(row=0, column=0, padx=20, pady=5, sticky="nsew")
+        left_frame.grid(row=0, column=0, padx=(20,2), pady=5, sticky="nsew")
 
         right_frame = ctk.CTkFrame(content_frame, fg_color="transparent")
-        right_frame.grid(row=0, column=1, padx=20, pady=5, sticky="nsew")
+        right_frame.grid(row=0, column=1, padx=(2,20), pady=5, sticky="nsew")
 
         # Configure grid weights for resizing
-        content_frame.grid_columnconfigure(0, weight=1)  # Left frame (Analysis/Processing)
-        content_frame.grid_columnconfigure(1, weight=2)  # Right frame (Results)
-        content_frame.grid_rowconfigure(0, weight=1)  # Allow vertical expansion
+        content_frame.grid_columnconfigure(0, weight=1, minsize=200)
+        content_frame.grid_columnconfigure(1, weight=4)
+        content_frame.grid_rowconfigure(0, weight=1)
+
+        # --- Instructions guide (Tab2 style) ---
+        guide_frame = ctk.CTkFrame(left_frame, fg_color="transparent")
+        guide_frame.pack(fill="x", pady=(0, UI_SETTINGS["PADDING"]["MEDIUM"]))
+
+        ctk.CTkLabel(
+            guide_frame,
+            text="Instructions",
+            font=UI_SETTINGS["FONTS"]["HEADER"],
+            text_color=UI_SETTINGS["COLORS"]["TEXT_LIGHT"],
+            wraplength=690,
+            justify="left"
+        ).pack(anchor="w", pady=(0, 5))
+
+        instructions = [
+            "1. Choose an analysis type:",
+            "   – Upper Airway Segmentation: generate airway prediction from DICOM/NIfTI.\n"
+            "   – Airflow Simulation: segmentation plus airflow & pressure simulation.\n\tSelect flow rate by dragging slider or typing number in box.",
+            "2. Click 'Start Processing'.",
+            "3. Switch between the Segmentation, Post‑processed Geometry, and CFD Simulation \n\ttabs to see the results once completed.",
+            "4. Click on 3D render buttons to inspect the segmented \n\tand post-processed geometries more closely.",
+            "4. Click “Preview Report” to open a PDF preview of your results.",
+            "5. Click “Save Data” to export the results and PDF to your external drive."
+        ]
+        for instr in instructions:
+            ctk.CTkLabel(
+                guide_frame,
+                text=instr,
+                wraplength=650,
+                font=UI_SETTINGS["FONTS"]["SMALL"],
+                text_color=UI_SETTINGS["COLORS"]["TEXT_LIGHT"],
+                justify="left"
+            ).pack(anchor="w", padx=20)
+        # ----------------------------------------
 
         # Add sections to the left frame
         self._create_analysis_section(left_frame)
@@ -187,7 +224,7 @@ class Tab4Manager:
             variable=self.analysis_option,
             values=[
                 "Upper Airway Segmentation",
-                "Airflow Simulation"
+                "Segmentation + Airflow Simulation"
             ],
             command=self._update_processing_details,
             width=TAB4_UI["ANALYSIS_TYPE_MENU"]["WIDTH"],
@@ -202,81 +239,60 @@ class Tab4Manager:
             analysis_section.content,
             text="",
             font=UI_SETTINGS["FONTS"]["BUTTON_LABEL"],
-            wraplength=400,
+            wraplength=550,
             justify="center"
         )
         self.processing_details_label.pack(pady=(0, 5))
 
         # Create flow rate frame (initially hidden)
         self.flow_rate_frame = ctk.CTkFrame(analysis_section.content, fg_color="transparent")
+        # show it in the same spot you were before
+        self.flow_rate_frame.pack(fill="x", pady=(5, 10))
 
-        # Flow rate label frame (to contain label and info button side by side)
-        flow_label_frame = ctk.CTkFrame(self.flow_rate_frame, fg_color="transparent")
-        flow_label_frame.pack(side="top", fill="x", pady=(2, 0))
-
-        # Flow rate label
+        # Label + slider + entry + unit + info button all side by side
         flow_rate_title = ctk.CTkLabel(
-            flow_label_frame,
-            text="Breathing Rate or Flow Rate (LPM):",
+            self.flow_rate_frame,
+            text="Breathing Rate or Flow Rate:",
             font=UI_SETTINGS["FONTS"]["NORMAL"],
             anchor="w"
         )
-        flow_rate_title.pack(side="left", anchor="w")
+        flow_rate_title.pack(side="left", padx=(0, 10))
 
-        # Flow rate control frame (horizontal layout)
-        flow_control_frame = ctk.CTkFrame(self.flow_rate_frame, fg_color="transparent")
-        flow_control_frame.pack(fill="x", pady=(2, 2))
-        
-        # Flow rate slider
+        # Slider
         self.flow_rate_slider = ctk.CTkSlider(
-            flow_control_frame,
+            self.flow_rate_frame,
             from_=5,
-            to=50.0,
-            number_of_steps=9,  # 0.1 LPM increments
+            to=150.0,
+            number_of_steps=29,
             variable=self.flow_rate,
-            width=250,
+            width=220,
             command=self._update_flow_rate_label
         )
         self.flow_rate_slider.pack(side="left", padx=(0, 10))
-        
-        # Create input/display frame (for entry, value, and unit)
-        input_frame = ctk.CTkFrame(flow_control_frame, fg_color="transparent")
-        input_frame.pack(side="left")
-        
-        # Flow rate entry field - directly input value
+
+        # Entry
         self.flow_rate_entry = ctk.CTkEntry(
-            input_frame,
+            self.flow_rate_frame,
             width=60,
             height=30,
             justify="right",
             font=UI_SETTINGS["FONTS"]["NORMAL"]
         )
-        self.flow_rate_entry.pack(side="left")
+        self.flow_rate_entry.pack(side="left", padx=(0, 5))
         self.flow_rate_entry.insert(0, f"{self.flow_rate.get():.1f}")
-        
-        # Add validation and real-time update for the entry
         self.flow_rate_entry.bind("<FocusOut>", self._validate_flow_rate_entry)
         self.flow_rate_entry.bind("<Return>", self._validate_flow_rate_entry)
         self.flow_rate_entry.bind("<KeyRelease>", self._update_slider_on_keyrelease)
-        
-        # Flow rate unit label and its info button in a separate frame
-        unit_frame = ctk.CTkFrame(input_frame, fg_color="transparent")
-        unit_frame.pack(side="left")
-        
-        # Flow rate unit label
-        unit_label = ctk.CTkLabel(
-            unit_frame,
-            text="LPM",
-            font=UI_SETTINGS["FONTS"]["NORMAL"],
-        )
-        unit_label.pack(side="left", padx=(5, 0))
-        
-        # Add info button next to LPM label
+
+        # Unit + info button
+        unit_label = ctk.CTkLabel(self.flow_rate_frame, text="LPM", font=UI_SETTINGS["FONTS"]["NORMAL"])
+        unit_label.pack(side="left", padx=(0, 5))
+
         lpm_info_button = _create_info_button(
-            unit_frame,
-            "LPM = Liters Per Minute\nThis is a volumetric measure of the breathing rate commonly used in respiratory medicine."
+            self.flow_rate_frame,
+            "LPM = Litres Per Minute\nThis is a volumetric measure of the breathing rate commonly used in respiratory medicine.\nWARNING: Simulations were experimentally validated only up to 90 LPM"
         )
-        lpm_info_button.pack(side="left", padx=5)
+        lpm_info_button.pack(side="left",padx=2)
 
     def _update_flow_rate_label(self, value=None):
         """Update the flow rate value when slider changes"""
@@ -334,19 +350,19 @@ class Tab4Manager:
             value = float(entry_text)
             
             # Check if value is outside valid range
-            if value < 1.0 or value > 50.0:
+            if value < 1.0 or value > 150.0:
                 # Show notification to user
                 messagebox = tk.messagebox
                 messagebox.showwarning(
                     "Invalid Flow Rate", 
-                    "Please enter a value between 5.0 and 50.0 LPM"
+                    "Please enter a value between 5.0 and 150.0 LPM"
                 )
                 
                 # Reset to current value or nearest valid value
                 if value < 0.10:
                     value = 0.1
-                elif value > 50.0:
-                    value = 50.0
+                elif value > 150.0:
+                    value = 150.0
             
             # Round to 1 decimal place
             value = round(value * 10) / 10
@@ -407,26 +423,33 @@ class Tab4Manager:
         self.progress_section = ProgressSection(processing_section.content)
         self.progress_section.pack(fill="x", pady=(0,2))
 
-    def _create_results_section(self, parent):
-        """Create the results section with a Notebook to view different stages."""
-        results_section = ResultsFormSection(parent, "Results")
-        results_section.pack(fill="both", padx=20, pady=(5, 5), expand=True)
+    def _create_results_section(self, parent, active=False):
+        """Create the Results section; gray it out if not active."""
+        # gray background vs. normal
+        bg = (UI_SETTINGS["COLORS"]["SECTION_ACTIVE"]
+            if active
+            else UI_SETTINGS["COLORS"]["SECTION_INACTIVE"])
+        results_section = ResultsFormSection(parent, "Results", fg_color=bg)
+        results_section.pack(fill="both", padx=20, pady=5, expand=True)
+        self.results_section_frame = results_section  # keep for activation
+
+        # description label color
+        self.results_description = ctk.CTkLabel(
+            results_section.content,
+            text="Switch between tabs to view different analysis stages…",
+            font=UI_SETTINGS["FONTS"]["NORMAL"],
+            text_color=(UI_SETTINGS["COLORS"]["TEXT_DARK"]
+                        if active
+                        else UI_SETTINGS["COLORS"]["TEXT_DISABLED"]),
+            wraplength=600,
+            justify="center"
+        )
+        self.results_description.pack(pady=(5, 2))
 
         notebook_frame = results_section.content
 
-        # Add description label below the Results header
-        results_description = ctk.CTkLabel(
-            results_section.content,
-            text="Switch between tabs to view different analysis stages. \nUse the Preview and Save buttons below to access complete results.",
-            font=UI_SETTINGS["FONTS"]["NORMAL"],
-            text_color=UI_SETTINGS["COLORS"]["TEXT_DARK"],
-            wraplength=650,  # Allow text to wrap
-            justify="center"
-        )
-        results_description.pack(pady=(5, 2))
-
         # Create a container for the notebook
-        notebook_container = ctk.CTkFrame(notebook_frame, width=700, height=400,
+        notebook_container = ctk.CTkFrame(notebook_frame, width=1100, height=400,
                                         fg_color=results_section.content.cget("fg_color"))
         notebook_container.pack(pady=(3, 5), fill="both", expand=True)
         notebook_container.pack_propagate(False)
@@ -503,7 +526,16 @@ class Tab4Manager:
                 height=4,
                 corner_radius=2
             )
-        
+
+        # ── after all buttons exist, disable them if not active ──
+        if not active:
+            for btn in self.tab_buttons.values():
+                btn.configure(
+                    state="disabled",
+                    fg_color=UI_SETTINGS["COLORS"]["DISABLED_BUTTON"],
+                    text_color=UI_SETTINGS["COLORS"]["TEXT_DISABLED"],
+                    hover_color=UI_SETTINGS["COLORS"]["DISABLED_BUTTON"]
+                )
         # Default to first tab (Segmentation) initially selected
         self._select_tab("Segmentation")
         
@@ -519,7 +551,7 @@ class Tab4Manager:
             image=eye_icon,
             compound="left",
             command=self._preview_report,
-            width=250,  # Make wider to take up 50% of space
+            width=250,
             height=40,
             font=UI_SETTINGS["FONTS"]["BUTTON_TEXT"],
             fg_color=UI_SETTINGS["COLORS"]["REG_BUTTON"],
@@ -528,16 +560,16 @@ class Tab4Manager:
         )
         self.preview_button.pack(side="left", padx=(0, 5), fill="x", expand=True)
 
-        # Export button
-        pil_save = create_icon("save", (24, 24))
-        save_icon = ctk.CTkImage(light_image=pil_save, dark_image=pil_save, size=(24, 24))
+        # Save Results to Drive button
+        drive_icon = create_icon("save", (24, 24))
+        drive_icon = ctk.CTkImage(light_image=drive_icon, dark_image=drive_icon, size=(24, 24))
         self.export_button = ctk.CTkButton(
             button_frame,
-            text="Save Report as PDF",
-            image=save_icon,
+            text="Save Results to Drive",
+            image=drive_icon,
             compound="left",
-            command=self._export_results_to_pdf,
-            width=250,  # Make wider to take up 50% of space
+            command=self._save_results_to_drive,
+            width=250, 
             height=40,
             font=UI_SETTINGS["FONTS"]["BUTTON_TEXT"],
             fg_color=UI_SETTINGS["COLORS"]["REG_BUTTON"],
@@ -545,12 +577,38 @@ class Tab4Manager:
             state="disabled"
         )
         self.export_button.pack(side="left", fill="x", expand=True)
+
         
         return results_section
+    
+    def _activate_results_section(self):
+        """Enable and recolor the Results section once processing is done."""
+        # 1. Recolor the Results container
+        self.results_section_frame.configure(
+            fg_color=UI_SETTINGS["COLORS"]["SECTION_ACTIVE"]
+        )
+
+        # 2. Restore description text color
+        self.results_description.configure(
+            text_color=UI_SETTINGS["COLORS"]["TEXT_DARK"]
+        )
+
+        # 3. Re‑enable each tab button with its original colors
+        for name, btn in self.tab_buttons.items():
+            btn.configure(
+                state="normal",
+                fg_color="#d9d9d9",
+                text_color="#505050",
+                hover_color=self.tab_colors[name]
+            )
+        
+        # 4. Re-apply the selected
+        self._select_tab(getattr(self, "current_tab", "Segmentation"))
 
     def _select_tab(self, tab_name):
         """Select a tab and update styling with enhanced visual cues."""
         # Make sure we have the tab frames initialized
+        self.current_tab = tab_name
         if not hasattr(self, 'tab_frames') or not self.tab_frames:
             return
             
@@ -625,7 +683,7 @@ class Tab4Manager:
                 "This will perform automatic segmentation of the upper airway "
                 "from the DICOM images.",
             
-            "Airflow Simulation":
+            "Segmentation + Airflow Simulation":
                 "This will first perform airway segmentation, followed by CFD "
                 "analysis to simulate airflow patterns and pressure changes."
         }
@@ -635,7 +693,7 @@ class Tab4Manager:
         )
         
         # Show/hide flow rate controls based on selection
-        if choice == "Airflow Simulation":
+        if choice == "Segmentation + Airflow Simulation":
             self.flow_rate_frame.pack(fill="x", pady=(5, 10))
         else:
             self.flow_rate_frame.pack_forget()
@@ -663,6 +721,18 @@ class Tab4Manager:
             messagebox.showerror("Error", "No output folder specified. Please return to the patient information page and try again.")
             return
 
+        # If “Segmentation only” and results already exist, offer to reuse
+        if self.analysis_option.get() == "Upper Airway Segmentation":
+            if self._segmentation_results_exist():
+                reuse = self._show_custom_dialog(
+                    title="Existing Segmentation Found",
+                    message="You’ve already run segmentation here. Use existing results?",
+                    icon="question"
+                )
+                if reuse:
+                    self._load_existing_segmentation()
+                    return
+
         # For airflow simulation, check if results already exist for this flow rate
         if "Simulation" in self.analysis_option.get():
             if self._cfd_results_exist():
@@ -682,16 +752,6 @@ class Tab4Manager:
                     # Use existing results
                     self._load_existing_cfd()
                     return
-                else:
-                    # User wants to rerun simulation - confirm overwrite
-                    overwrite_response = self._show_custom_dialog(
-                        title="Confirm Overwrite",
-                        message=f"This will overwrite existing results for flow rate {flow_str} LPM. Are you sure you want to continue?",
-                        icon="warning"
-                    )
-                    
-                    if not overwrite_response:  # User clicked No
-                        return  # User cancelled
 
         # Show confirmation dialog focused on analysis type
         analysis_type = self.analysis_option.get()
@@ -753,34 +813,6 @@ class Tab4Manager:
         # Add padding
         content_frame = tk.Frame(dialog, padx=25, pady=15)
         content_frame.pack(fill="both", expand=True)
-        
-        # # Add icon based on type
-        # if icon == "question":
-        #     icon_text = "?"
-        #     icon_color = "#007bff"
-        #     icon_bg = "#e6f2ff"
-        # elif icon == "warning":
-        #     icon_text = "!"
-        #     icon_color = "#ff9800"
-        #     icon_bg = "#fff3e0"
-        # else:
-        #     icon_text = "i"
-        #     icon_color = "#28a745"
-        #     icon_bg = "#e8f5e9"
-        
-        # icon_frame = tk.Frame(content_frame)
-        # icon_frame.pack(pady=(10, 15))
-        
-        # icon_label = tk.Label(
-        #     icon_frame,
-        #     text=icon_text,
-        #     font=UI_SETTINGS["FONTS"]["BUTTON_TEXT"],
-        #     fg=icon_color,
-        #     bg=icon_bg,
-        #     width=2,
-        #     height=1
-        # )
-        # icon_label.pack()
         
         # Add message
         message_label = tk.Label(
@@ -859,6 +891,10 @@ class Tab4Manager:
             
             self.processing_active = True
             self.process_button.configure(state="disabled")
+
+            # immediately activate the Results area
+            # (Tabs will show placeholders until each stage renders)
+            self._activate_results_section()
             
             def progress_callback(message, percentage, output_line=None):
                 """Update progress bar and message"""
@@ -893,6 +929,10 @@ class Tab4Manager:
             def cancel_processing():
                 """Cancel the processing and stop the progress bar"""
                 self.cancel_requested = True
+                # notify segmentator
+                processor.cancel_event.set()
+                # kill subprocess too
+                processor.cancel_processing()
                 if processor.cancel_processing():
                     # Ensure the progress bar animation is stopped
                     self.app.after(0, lambda: self.progress_section.stop("Processing Cancelled"))
@@ -931,7 +971,14 @@ class Tab4Manager:
                     
                     # Schedule completion handling in main thread
                     self.app.after(0, lambda: self._handle_processing_completion(True, results))
-                    
+
+                except RuntimeError as e:
+                    # user hit Cancel inside segmentation → clean up UI
+                    self.app.after(0, lambda: self.progress_section.stop("Processing cancelled"))
+                    self.app.after(0, lambda: self.process_button.configure(state="normal"))
+                    self.app.after(0, lambda: self._reset_processing_state())
+                    return
+
                 except Exception as exc:
                     # Store the exception message for the lambda
                     error_message = str(exc)
@@ -988,6 +1035,17 @@ class Tab4Manager:
         
         # Stop the progress bar
         self.progress_section.stop("Processing complete!")
+
+        self.processing_active = False
+        self.process_button.configure(state="normal")
+        self.progress_section.stop("Processing complete!")
+
+        # ★ Activate the Results section now that we have output ★
+        self._activate_results_section()
+
+        # Enable the Preview and Export buttons (this was already here)
+        self.preview_button.configure(state="normal")
+        self.export_button.configure(state="normal")
         
         # Enable the Preview and Export buttons
         self.preview_button.configure(state="normal")
@@ -1012,8 +1070,10 @@ class Tab4Manager:
             # Get paths based on selected flow rate
             cfd_base_path = self._get_full_cfd_path()
             # Post-processed tab - look for any assembly image
-            assem_files = list(Path(cfd_base_path).glob("*assembly.png"))
-            postprocessed_path = str(assem_files[0]) if assem_files else None
+            assem = list(Path(cfd_base_path).glob("*_assem.png"))
+            if not assem:
+                assem = list(Path(cfd_base_path).glob("*assembly.png"))
+            postprocessed_path = str(assem[0]) if assem else None
             self._update_render_display("postprocessing", postprocessed_path)
             
             # CFD tab - look for any CFD image
@@ -1023,6 +1083,13 @@ class Tab4Manager:
             
             # Select CFD tab as it's the final result
             self._select_tab("CFD Simulation")
+
+            self.update_progress(
+                "Processing complete!...",
+                100,
+                "Processing complete!..."
+            )
+
         else:
             # Just select the segmentation tab
             self._select_tab("Segmentation")
@@ -1069,6 +1136,10 @@ class Tab4Manager:
 
             # Store the airway volume for use in reports
             self.airway_volume = results['volume']
+
+            # Store the airway min csa for use in reports
+            self.approx_min_csa = results['stl_path']['min_csa']
+
             
             # Show segmentation result immediately
             if 'preview_path' in results['stl_path'] and os.path.exists(results['stl_path']['preview_path']):
@@ -1093,9 +1164,10 @@ class Tab4Manager:
             if "Simulation" in self.analysis_option.get() and not self.cancel_requested:
                 # disable button so user can't re-click
                 self.process_button.configure(state="disabled")
-                self.update_progress("Segmentation complete. Starting post-processing…", 70)
+                self.update_progress("Segmentation complete. Starting post-processing…", 50)
 
                 # launch Blender in a background thread
+                self.update_progress("Creating inlet and outlet in Blender…", 50, "Creating inlet and outlet in Blender…")
                 blender_args = {
                     "stl_path": results['stl_path']['stl_path'],
                     "cfd_output_dir": str(self._get_full_cfd_path())
@@ -1108,9 +1180,7 @@ class Tab4Manager:
                     daemon=True
                 )
                 self.processing_thread.start()
-                
-                # NOTE: We don't call _finalize_processing here anymore.
-                # It will be called by _on_blender_done and _on_sim_done instead
+            
             else:
                 # Segmentation only - just finalize and show message
                 self.progress_section.stop("Processing Complete!")
@@ -1165,16 +1235,18 @@ class Tab4Manager:
             self.logger.log_info(f"Progress update ({percentage}%): {message}")
 
     def cancel_processing(self):
-        self.cancel_requested = True
+        """Cancel the current processing if any subprocess is running"""
+        # tell every Python loop to stop
+        self.cancel_event.set()
+
+        # kill any live subprocess
         if self.current_subprocess and self.current_subprocess.poll() is None:
             self.current_subprocess.terminate()
             try:
                 self.current_subprocess.wait(timeout=5)
             except subprocess.TimeoutExpired:
                 self.current_subprocess.kill()
-            self.logger.log_info("Simulation subprocess cancelled.")
-            return True
-        return False
+        return True
 
     def _stream_subprocess_output(self, process, stage_name, base_progress):
         """
@@ -1237,6 +1309,7 @@ class Tab4Manager:
                         self.update_progress(f"{stage_name}: {line.strip()}", base_progress, line.strip())
                     else:
                         self.update_progress(f"{stage_name}: {line.strip()}", base_progress, line.strip())
+
     # ====================================================================================================================
     # ================================= IMAGE DISPLAY METHODS ==================================================================
     # ====================================================================================================================
@@ -1357,13 +1430,13 @@ class Tab4Manager:
         if stage == "segmentation":
             segmentation_button = ctk.CTkButton(
                 button_frame,
-                text="🔄 Open Airway Prediction Model in 3D Viewer",
+                text="🔄 Click to See Predicted Airway in 3D Viewer",
                 command=lambda: self._interactive_segmentation(self.current_stl_path if hasattr(self, 'current_stl_path') else None),
-                width=350,
-                height=40,
+                width=TAB4_SETTINGS["RENDER_BUTTON"]["WIDTH"],
+                height=TAB4_SETTINGS["RENDER_BUTTON"]["HEIGHT"],
                 font=UI_SETTINGS["FONTS"]["BUTTON_TEXT"],
-                fg_color="#00734d",
-                hover_color="#005a3e",
+                fg_color=TAB4_SETTINGS["RENDER_BUTTON"]["FG_COLOR"],
+                hover_color=TAB4_SETTINGS["RENDER_BUTTON"]["HOVER_COLOR"],
                 text_color="white"
             )
             segmentation_button.pack(pady=5)
@@ -1371,36 +1444,693 @@ class Tab4Manager:
         elif stage == "postprocessing":
             postprocessed_button = ctk.CTkButton(
                 button_frame,
-                text="🔄 Open Model with Processed Boundaries in 3D Viewer",
+                text="🔄 Click to See Model with Processed Boundaries in 3D Viewer",
                 command=self._interactive_blender_results,
-                width=350,
-                height=40,
+                width=TAB4_SETTINGS["RENDER_BUTTON"]["WIDTH"],
+                height=TAB4_SETTINGS["RENDER_BUTTON"]["HEIGHT"],
                 font=UI_SETTINGS["FONTS"]["BUTTON_TEXT"],
-                fg_color="#00734d",
-                hover_color="#005a3e",
+                fg_color=TAB4_SETTINGS["RENDER_BUTTON"]["FG_COLOR"],
+                hover_color=TAB4_SETTINGS["RENDER_BUTTON"]["HOVER_COLOR"],
                 text_color="white"
             )
             postprocessed_button.pack(pady=5)
-            
-        elif stage == "cfd":
-            # Add the Interactive Slice Viewer button
-            slice_viewer_button = ctk.CTkButton(
-                button_frame,
-                text="Interactive Viewer",
-                command=lambda: open_interactive_slice_viewer(self.vtk_file_path if hasattr(self, 'vtk_file_path') else None, self.app),
-                width=350,
-                height=40,
-                font=UI_SETTINGS["FONTS"]["BUTTON_TEXT"],
-                fg_color="#006a9f",  # Use a different color to distinguish
-                hover_color="#005380",
-                text_color="white"
+    
+    def _segmentation_results_exist(self):
+        """Return True if we’ve already run segmentation in this folder."""
+        stl_folder = Path(self.app.full_folder_path) / "stl"
+        # look for your STL (or image) marker
+        return stl_folder.exists() and any(stl_folder.glob("*_geo.stl"))
+    
+    def _load_existing_segmentation(self):
+        """Load the existing segmentation results into the UI."""
+        stl_folder = Path(self.app.full_folder_path) / "stl"
+        # pick the first preview image you generated in AirwaySegmentator
+        img = next(stl_folder.glob("*_geo.png"), None)
+        if img:
+            self._update_render_display("segmentation", str(img))
+            self.current_stl_path = str(img.with_suffix(".stl"))
+            self.airway_volume = str((Path(self.app.full_folder_path) / "volume_calculation.txt").read_text()
             )
-            slice_viewer_button.pack(pady=5)
-        
-        # Also update the _display_single_cfd_image method to properly store references
-        # to prevent CFD images from disappearing:
+            self._finalize_processing()
 
-    def _display_single_cfd_image(self, container, image_path, title):
+            # segmentation-only → no PDF preview, but allow data export to external drive
+            self.preview_button.configure(state="disabled")
+            self.export_button.configure(state="normal")
+        else:
+            messagebox.showwarning("Warning", "Could not find existing segmentation files.")
+
+    # ====================================================================================================================
+    # ================================= BLENDER METHODS ==================================================================
+    # ====================================================================================================================
+
+    def _blender_worker(self, args):
+        try:
+            # Create required directories before running Blender
+            trisurf_dir = os.path.join(args["cfd_output_dir"], "constant", "triSurface")
+            os.makedirs(trisurf_dir, exist_ok=True)
+            
+            # Write the input files for Blender
+            with open("sdir.txt", "w") as f:
+                f.write(args["cfd_output_dir"])
+            
+            with open("geo_in.txt", "w") as f:
+                f.write(args["stl_path"])
+
+            # Get the root dir of the project
+            project_root = Path(__file__).resolve().parents[2]
+            source_dir = project_root / "data" / "Master_cfd_file"
+            shutil.copytree(source_dir, args["cfd_output_dir"], symlinks=False, ignore=None, 
+                                ignore_dangling_symlinks=False, dirs_exist_ok=True)
+            
+            self.logger.log_info(f"Starting Blender with STL path: {args['stl_path']}")
+            self.logger.log_info(f"Output directory: {trisurf_dir}")
+
+            blender_dir = project_root / "blender_ortho.py"
+            
+            proc = subprocess.Popen(
+                ["blender", "--background", "--python", blender_dir],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL
+            )
+            self.current_process = proc
+
+            # simply wait for it to finish, without logging any of its output
+            code = proc.wait()
+            if code != 0:
+                # report an error
+                self.app.after(0, lambda: self._on_worker_error(
+                    "Blender",
+                    f"Blender exited with code {code}"
+                ))
+                return
+
+            # schedule the file‑check helper once Blender finished successfully
+            self.app.after(
+                0,
+                lambda: self._check_blender_files(code, None, None, args)
+            )
+
+
+        except Exception as e:
+            self.logger.log_error(f"Blender worker error: {e}")
+            # capture `e` as a default so it's available when the lambda runs
+            self.app.after(0, lambda e=e: self._on_worker_error("Blender", e))
+
+    def _check_blender_files(self, returncode, stdout, stderr, args):
+        """Check if necessary files exist before proceeding"""
+        if returncode != 0:
+            messagebox.showerror("Blender Error", stderr)
+            self.process_button.configure(state="normal")
+            return
+            
+        # Check if required STL files exist
+        inlet_path = os.path.join(args["cfd_output_dir"], "constant", "triSurface", "inlet.stl")
+        outlet_path = os.path.join(args["cfd_output_dir"], "constant", "triSurface", "outlet.stl")
+        wall_path = os.path.join(args["cfd_output_dir"], "constant", "triSurface", "wall.stl")
+        
+        self.logger.log_info(f"Checking for STL files: {inlet_path}, {outlet_path}, {wall_path}")
+        
+        files_exist = os.path.exists(inlet_path) and os.path.exists(outlet_path) and os.path.exists(wall_path)
+        
+        if not files_exist:
+            # Files don't exist yet, wait a bit longer before checking again (500ms)
+            self.logger.log_info("STL files not ready yet, checking again in 500ms")
+            self.app.after(500, lambda: self._check_blender_files(returncode, stdout, stderr, args))
+            return
+        
+        self.logger.log_info("All STL files found, proceeding to render assembly image")
+        
+        # Now that files exist, proceed with rendering assembly
+        preview = self._render_assembly_image(inlet_path, outlet_path, wall_path, args["cfd_output_dir"])
+        
+        if preview and os.path.exists(preview):
+            self.logger.log_info(f"Assembly image created: {preview}")
+            # Update UI with the preview image
+            self._update_render_display("postprocessing", preview)
+            self._select_tab("Post-processed Geometry")
+            
+            # Now proceed to CFD simulation
+            self.logger.log_info("Starting CFD simulation...")
+            self.cancel_requested = False
+            self.processing_active = True
+            self.update_progress(
+                "Running CFD simulation…",
+                75,
+                "Running CFD simulation…"
+            )
+            self.process_button.configure(text="Cancel", state="normal", command=self._request_cancel)
+            
+            threading.Thread(
+                target=self._cfd_worker,
+                args=(args["cfd_output_dir"],),
+                daemon=True
+            ).start()
+        else:
+            self.logger.log_error("Failed to generate assembly image")
+            messagebox.showerror("Error", "Failed to generate geometry preview image")
+            self.process_button.configure(state="normal")
+
+    def _on_blender_done(self, returncode, stdout, stderr, args):
+        if returncode != 0:
+            messagebox.showerror("Blender Error", stderr)
+            self.process_button.configure(state="normal")
+            return
+
+        # 1. Render the preview image
+        preview = self._render_assembly_image(
+            os.path.join(args["cfd_output_dir"], "constant", "triSurface", "inlet.stl"),
+            os.path.join(args["cfd_output_dir"], "constant", "triSurface", "outlet.stl"),
+            os.path.join(args["cfd_output_dir"], "constant", "triSurface", "wall.stl"),
+            args["cfd_output_dir"]
+        )
+
+        # 2. Show it on the "Post-processed Geometry" tab
+        self._update_render_display("postprocessing", preview)
+        
+        # Now that Blender processing is done, we can enable the Post-processed tab
+        self._select_tab("Post-processed Geometry")
+
+        # 3. Now kick off the CFD thread immediately (no extra user click)
+        self.cancel_requested = False
+        self.processing_active = True
+        self.update_progress(
+                "Running CFD simulation…",
+                77,
+                "Running CFD simulation…"
+            )
+        self.process_button.configure(text="Cancel", state="normal", command=self._request_cancel)
+
+        threading.Thread(
+            target=self._cfd_worker,
+            args=(args["cfd_output_dir"],),
+            daemon=True
+        ).start()
+
+    # ====================================================================================================================
+    # ================================= SIMULATION RELATED METHODS =======================================================
+    # ====================================================================================================================
+
+    def _get_full_cfd_path(self,flow_rate=None):
+        """
+        Get the full path to the CFD directory for the specified flow rate.
+        """
+        
+        if flow_rate is None:
+            flow_rate_read = self.flow_rate.get()
+        
+        # Format with exactly one decimal place
+        flow_rate_str = f"{flow_rate_read:.1f}"
+        # Replace decimal point with underscore
+        flow_dir = flow_rate_str.replace('.', '_')
+        # Add CFD_ suffix
+        cfd_dir = f"CFD_{flow_dir}"
+        
+        # Base path where CFD results are stored
+        # Get base path from the application's current patient folder
+        if hasattr(self.app, 'full_folder_path') and self.app.full_folder_path:
+            # Use the parent directory of the current patient folder
+            base_path = str(Path(self.app.full_folder_path))
+        else:
+            self.logger.log_warning("Full_folder_path is not set")
+        
+        return os.path.join(base_path, cfd_dir)
+
+    def _cfd_worker(self, cfd_dir):
+        try:
+            dirs = str(cfd_dir)
+
+            # 1. Write flow rate to pvfr.txt
+            step0 = os.path.join(dirs, "0")
+            os.makedirs(step0, exist_ok=True)
+            with open(os.path.join(step0, "pvfr.txt"), "w") as f:
+                f.write(f"vfr {self.flow_rate.get():.1f};\n#inputMode merge")
+
+            # 2. Combine STL files
+            self.update_progress(
+                "Combining STL parts…",
+                65,
+                "Combining STL parts…"
+            )
+            surf_dir = os.path.join(dirs, "constant", "triSurface")
+            subprocess.run("cat *.stl >> combined.stl", cwd=surf_dir, shell=True, check=True)
+            if not os.path.isdir(surf_dir):
+                raise FileNotFoundError(f"triSurface directory not found: {surf_dir}")
+
+            # remove old combined.stl
+            subprocess.run(["rm", "-f", "combined.stl"], cwd=surf_dir, check=True)
+            # cat all .stl into combined.stl
+            subprocess.run("cat *.stl >> combined.stl", cwd=surf_dir, shell=True, check=True)
+
+            if not os.path.exists(os.path.join(surf_dir, "combined.stl")):
+                raise FileNotFoundError("Failed to create combined.stl")
+
+            # 3. Kick off residual monitoring in background
+            t_mon = threading.Thread(target=self._monitor_residuals, args=(dirs,), daemon=True)
+            t_mon.start()
+
+            # 4. Ensure Allclean/Allrun exist and are executable
+            self.update_progress("Starting CFD…", 77)
+            for script in ("Allclean", "Allrun"):
+                path = os.path.join(dirs, script)
+                if not os.path.isfile(path):
+                    raise FileNotFoundError(f"{script} not found: {path}")
+                if not os.access(path, os.X_OK):
+                    os.chmod(path, 0o755)
+                    self.logger.log_info(f"Made {script} executable")
+
+            # 5. Run Allclean then Allrun, inheriting stdout/stderr
+            self.update_progress(
+                "Running CFD simulation…",
+                78,
+                "Running CFD simulation…"
+            )
+            for script in ("Allclean", "Allrun"):
+                self.logger.log_info(f"Running {script} in {dirs}")
+                subprocess.run([f"./{script}"], cwd=dirs, check=True)
+
+            # 6. All done—back to main thread
+            self.update_progress(
+                "CFD simulation finished, processing results…",
+                85,
+                "CFD simulation finished, processing results…"
+            )
+            self.app.after(0, lambda: self._on_sim_done(cfd_dir))
+
+        except subprocess.CalledProcessError as e:
+            msg = (
+                f"{e.cmd!r} failed (code {e.returncode}).\n"
+                f"Output: {e.output or 'n/a'}\n"
+                f"Error: {e.stderr or 'n/a'}"
+            )
+            self.logger.log_error(msg)
+            self.app.after(0, lambda: self._on_worker_error("Simulation", msg))
+
+        except Exception as e:
+            msg = f"{type(e).__name__}: {e}"
+            self.logger.log_error(msg)
+            self.app.after(0, lambda: self._on_worker_error("Simulation", msg))
+    
+    def _on_sim_done(self, cfd_dir):
+        """Process and visualize CFD results after simulation completes."""
+        try:
+            # Run ParaView script to generate visualization images
+            self.update_progress(
+                "Generating visualization images...",
+                90,
+                "Generating visualization images..."
+            )
+            success = self._run_paraview(cfd_dir)
+            self.autocrop_whitespace(cfd_dir)
+            
+            if not success:
+                messagebox.showwarning("Warning", "ParaView post-processing failed, some images may be missing.")
+            
+            # Store the VTK file path for the interactive slice viewer
+            vtk_folder = Path(cfd_dir) / "VTK"
+            if vtk_folder.exists():
+                files = [f for f in os.listdir(vtk_folder) if f.endswith(".vtm") or f.endswith(".vtu")]
+                if files:
+                    # Sort to get the latest timestep
+                    self.vtk_file_path = os.path.join(vtk_folder, sorted(files)[-1])
+                    self.logger.log_info(f"Found VTK file for slice viewer: {self.vtk_file_path}")
+            else:
+                # Create VTK folder if needed and run foamToVTK
+                os.makedirs(vtk_folder, exist_ok=True)
+                try:
+                    self.logger.log_info("Running foamToVTK...")
+                    subprocess.run(["foamToVTK"], cwd=cfd_dir, check=True)
+                    
+                    # Now check for VTK files again
+                    files = [f for f in os.listdir(vtk_folder) if f.endswith(".vtm") or f.endswith(".vtu")]
+                    if files:
+                        self.vtk_file_path = os.path.join(vtk_folder, sorted(files)[-1])
+                except Exception as e:
+                    self.logger.log_error(f"foamToVTK error: {str(e)}")
+            
+            # Update the CFD tab display with newly generated images
+            pressure_images = list(Path(cfd_dir).glob("p_cut_1.png"))
+            velocity_images = list(Path(cfd_dir).glob("v_cut_1.png"))
+            
+            # Now enable the CFD tab and display results
+            if pressure_images or velocity_images:
+                self._update_render_display("cfd", None)  # This will trigger the _update_cfd_display method
+                self._select_tab("CFD Simulation")
+            
+            # Now finalize everything
+            self._finalize_processing()
+            self.process_button.configure(text="Start Processing", state="normal")
+            
+            # Enable preview and export buttons now that everything is done
+            self.preview_button.configure(state="normal")
+            self.export_button.configure(state="normal")
+
+            self.prune_cfd_folder(cfd_dir) # Comment out if not wanting to remove log files and other supplemental files
+            
+        except Exception as e:
+            error_msg = f"Error in post-processing: {str(e)}"
+            self.logger.log_error(error_msg)
+            messagebox.showerror("Error", error_msg)
+            self.process_button.configure(state="normal")
+    
+    def _run_paraview(self, cfd_dir):
+        """
+        Simple function to run paraview_ortho.py to generate visualization images.
+        Assumes sdir.txt already exists with correct content.
+        """
+        try:
+            # 1. Verify case.foam exists
+            case_foam_path = os.path.join(cfd_dir, "case.foam")
+            if not os.path.exists(case_foam_path):
+                self.logger.log_error(f"case.foam file not found at: {case_foam_path}")
+                return False
+            
+            # 2. Run the paraview script
+            self.logger.log_info("Running ParaView script")
+            
+            # Use absolute path for the script to avoid any path issues
+            main_dir = os.path.dirname(os.path.abspath(sys.argv[0]))
+            script_path = os.path.join(main_dir, "paraview_ortho.py")
+            
+            # Run the command
+            cmd = ["pvbatch", script_path]
+            self.logger.log_info(f"Command: {' '.join(cmd)}")
+            
+            process = subprocess.Popen(
+                cmd,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                universal_newlines=True
+            )
+            
+            # Wait for completion and get output
+            stdout, stderr = process.communicate()
+            
+            # Log significant output
+            if stdout:
+                self.logger.log_info(f"ParaView output: {stdout.strip()}")
+            
+            if stderr:
+                self.logger.log_error(f"ParaView error: {stderr.strip()}")
+            
+            if process.returncode != 0:
+                self.logger.log_error(f"ParaView process failed with return code: {process.returncode}")
+                return False
+            
+            # 3. Create CFD-tagged copies of generated images
+            for img in ["p_cut_1.png", "v_cut_1.png"]:
+                img_path = os.path.join(cfd_dir, img)
+                if os.path.exists(img_path):
+                    # Create CFD-tagged copy
+                    cfd_img = img.replace(".png", "_CFD.png")
+                    cfd_img_path = os.path.join(cfd_dir, cfd_img)
+                    shutil.copy(img_path, cfd_img_path)
+                    self.logger.log_info(f"Created tagged copy: {cfd_img}")
+            
+            return True
+            
+        except Exception as e:
+            self.logger.log_error(f"Error running ParaView: {str(e)}")
+            return False
+    
+    def autocrop_whitespace(self, folder, pattern="*.png"):
+        # Crops out the white space in the images. Did this to not modify the paraview script provided by Uday
+        for fname in glob.glob(os.path.join(folder, pattern)):
+            img = Image.open(fname)
+            # create a white background image the same size
+            bg = Image.new(img.mode, img.size, (255,255,255))
+            # find the bounding box of the non-white area
+            diff = ImageChops.difference(img, bg)
+            bbox = diff.getbbox()
+            if bbox:
+                cropped = img.crop(bbox)
+                cropped.save(fname)  # overwrite
+                print(f"Cropped whitespace from {os.path.basename(fname)}")
+
+    def _on_sim_cancelled(self):
+        messagebox.showinfo("Cancelled", "Simulation stopped by user")
+        self._reset_processing_state()
+
+    def _cfd_results_exist(self, flow_rate=None):
+        """
+        Check if CFD results already exist (case.foam),
+        or if segmentation has already been done (.stl in stl/).
+        """
+        cfd_path = self._get_full_cfd_path(flow_rate)
+
+        # 1) CFD done?
+        case_foam = os.path.join(cfd_path, "case.foam")
+        if os.path.exists(case_foam):
+            return True
+
+        # 2) Segmentation done?
+        stl_folder = Path(self.app.full_folder_path) / "stl"
+        if stl_folder.exists() and any(stl_folder.glob("*.stl")):
+            return True
+
+        return False
+    
+    def _monitor_residuals(self, dirs):
+        """Monitor and update residual plots during simulation"""
+        gnuplot_dir = os.path.join(dirs, "gnuplot")
+        
+        # Check if the directory exists
+        if not os.path.exists(gnuplot_dir):
+            self.logger.log_warning(f"Gnuplot directory not found at {gnuplot_dir}")
+            return
+            
+        while not self.cancel_requested:
+            try:
+                # Run the gnuplot script if it exists (same as GUI_ortho approach)
+                if os.path.exists(os.path.join(gnuplot_dir, "gnuplot_residuals")):
+                    subprocess.run(
+                        ['/bin/bash', '-c', "bash ./gnuplot_residuals"], 
+                        cwd=gnuplot_dir, 
+                        check=False
+                    )
+                
+                # Check if the plot was generated
+                if os.path.exists(os.path.join(gnuplot_dir, "residual_plot.png")):
+                    self.residual_plot_path = os.path.join(gnuplot_dir, "residual_plot.png")
+                
+                # Sleep before checking again
+                time.sleep(2)
+                
+                # Check if simulation is complete - use same condition as GUI_ortho
+                if os.path.exists(os.path.join(dirs, "20", "U")):  
+                    break
+            except Exception as e:
+                self.logger.log_error(f"Error monitoring residuals: {str(e)}")
+                time.sleep(10)
+
+    def _load_existing_cfd(self):
+        """Load existing CFD results for the current flow rate."""
+        try:
+            # Show a progress indicator
+            self.progress_section.start("Loading existing results...", indeterminate=True)
+            
+            # Get the CFD path for the current flow rate
+            cfd_path = self._get_full_cfd_path()
+            self.logger.log_info(f"Loading results from: {cfd_path}")
+            
+            # Update the processing state
+            self.processing_active = True
+            
+            # Load segmentation results
+            self.update_progress(
+                "Loading segmentation results...",
+                30,
+                "Loading segmentation results..."
+            )
+            
+            # Try to find the segmentation image - look in several possible locations
+            segmentation_image = None
+            segmentation_paths_to_check = [
+                # Check in the stl folder first (where it's normally saved)
+                Path(self.app.full_folder_path) / "stl",
+                # Also check in the CFD folder (might be a copy there)
+                Path(cfd_path)
+            ]
+            
+            for folder in segmentation_paths_to_check:
+                if folder.exists():
+                    # Look for prediction images with various naming patterns
+                    for pattern in ["*_pred.png", "*_prediction.png", "*_segmentation.png", "*_geo.png"]:
+                        pred_images = list(folder.glob(pattern))
+                        if pred_images:
+                            segmentation_image = str(pred_images[0])
+                            self.logger.log_info(f"Found segmentation image: {segmentation_image}")
+                            break
+                
+                # If we found an image, we can stop looking
+                if segmentation_image:
+                    break
+                    
+            # If we found a segmentation image, update the display
+            if segmentation_image:
+                self._update_render_display("segmentation", segmentation_image)
+                
+                # Try to find the STL file corresponding to this image
+                stl_file = Path(segmentation_image).with_suffix(".stl")
+                if stl_file.exists():
+                    self.current_stl_path = str(stl_file)
+                    self.logger.log_info(f"Found STL file: {self.current_stl_path}")
+                else:
+                    # Look for any STL file in the stl folder or in the CFD folder
+                    for folder in segmentation_paths_to_check:
+                        stl_files = list(folder.glob("*.stl"))
+                        for stl_file in stl_files:
+                            # Skip component STL files
+                            if stl_file.name in ["inlet.stl", "outlet.stl", "wall.stl"]:
+                                continue
+                            self.current_stl_path = str(stl_file)
+                            self.logger.log_info(f"Found alternate STL file: {self.current_stl_path}")
+                            break
+                        
+                        if hasattr(self, 'current_stl_path'):
+                            break
+            else:
+                self.logger.log_warning("No segmentation image found. Skipping segmentation display.")
+
+            # Check multiple possible volume file locations
+            volume_file_paths = [
+                Path(cfd_path) / "volume_calculation.txt",
+                Path(self.app.full_folder_path) / "volume_calculation.txt",
+                Path(self.app.full_folder_path) / "volume.txt",
+                Path(self.app.full_folder_path) / "volume_calculation.txt"
+            ]
+            
+            volume_found = False
+            for volume_path in volume_file_paths:
+                if volume_path.exists():
+                    with open(volume_path, 'r') as f:
+                        volume_str = f.read().strip()
+                        self.airway_volume = float(volume_str) if volume_str.replace('.', '', 1).isdigit() else volume_str
+                        self.logger.log_info(f"Loaded airway volume from {volume_path}: {self.airway_volume}")
+                        volume_found = True
+                        break
+            
+            # Look for min csa file
+            main_out = Path(self.app.full_folder_path)
+            min_csa_path = main_out / "min_csa.txt"
+            if min_csa_path.exists():
+                try:
+                    self.approx_min_csa = float(min_csa_path.read_text().strip())
+                    self.logger.log_info(f"Loaded min CSA from {min_csa_path}: {self.approx_min_csa}")
+                except ValueError:
+                    self.approx_min_csa = None
+                    self.logger.log_warning(f"Could not parse min_csa.txt at {min_csa_path}")
+            else:
+                self.approx_min_csa = None
+                self.logger.log_warning(f"min_csa.txt not found at {min_csa_path}")
+            
+            # Load post-processed geometry
+            self.update_progress(
+                "Loading post-processed geometry...",
+                60,
+                "Loading post-processed geometry..."
+            )
+            
+            # Look for assembly image
+            assembly_path = os.path.join(cfd_path, "constant", "triSurface")
+            assembly_images = list(Path(assembly_path).glob("*_assem.png"))
+            if not assembly_images:
+                assembly_images = list(Path(assembly_path).glob("*assembly.png"))
+            if assembly_images:
+                self.logger.log_info(f"Found assembly image: {assembly_images[0]}")
+                self._update_render_display("postprocessing", str(assembly_images[0]))
+            else:
+                self.logger.log_warning("No assembly visualization found.")
+            
+            # Load CFD simulation results
+            self.update_progress(
+                "Loading CFD simulation results...",
+                90,
+                "Loading CFD simulation results..."
+            )
+            
+            # Check if the case.foam file exists
+            case_foam_path = os.path.join(cfd_path, "case.foam")
+            if not os.path.exists(case_foam_path):
+                self.logger.log_warning(f"case.foam file not found at: {case_foam_path}")
+                messagebox.showwarning(
+                    "Missing Files",
+                    "The simulation results appear to be incomplete. Some files may be missing."
+                )
+            
+            # Check for CFD visualization images
+            p_cut_1 = os.path.join(cfd_path, "p_cut_1.png")
+            v_cut_1 = os.path.join(cfd_path, "v_cut_1.png")
+            
+            # If the images don't exist, run ParaView to generate them
+            if not (os.path.exists(p_cut_1) and os.path.exists(v_cut_1)):
+                self.logger.log_info("CFD visualization images not found. Running ParaView...")
+                self.update_progress("Generating visualization images...", 85)
+                self.update_progress(
+                    "Generating visualization images...",
+                    92,
+                    "Generating visualization images..."
+                )
+                
+                # Run ParaView script to generate images
+                success = self._run_paraview(cfd_path)
+                if not success:
+                    self.logger.log_warning("Failed to generate CFD visualization images")
+                    messagebox.showwarning(
+                        "Visualization Failed",
+                        "Failed to generate CFD visualization images. Some visualizations may be missing."
+                    )
+            
+            # Now check for VTK files
+            vtk_folder = Path(cfd_path) / "VTK"
+            if not vtk_folder.exists() or not any(vtk_folder.glob("*.vt*")):
+                # Run foamToVTK to create VTK files
+                try:
+                    self.logger.log_info("Running foamToVTK...")
+                    self.update_progress(
+                        "Creating VTK files for interactive viewer...",
+                        95,
+                        "Creating VTK files for interactive viewer..."
+                    )
+                    
+                    os.makedirs(vtk_folder, exist_ok=True)
+                    subprocess.run(["foamToVTK"], cwd=cfd_path, check=True)
+                except Exception as e:
+                    self.logger.log_error(f"foamToVTK error: {str(e)}")
+            
+            # Find the VTK file for the interactive slice viewer
+            if vtk_folder.exists():
+                files = list(vtk_folder.glob("*.vtm")) or list(vtk_folder.glob("*.vtu"))
+                if files:
+                    # Sort to get the latest timestep
+                    self.vtk_file_path = str(sorted(files)[-1])
+                    self.logger.log_info(f"Found VTK file for slice viewer: {self.vtk_file_path}")
+            
+            # Update the CFD visualization
+            self._update_render_display("cfd", None)  # This will trigger the _update_cfd_display method
+            
+            # Switch to CFD tab
+            self._select_tab("CFD Simulation")
+            
+            # Finalize
+            self._finalize_processing()
+            
+            # Show success message
+            messagebox.showinfo(
+                "Results Loaded",
+                f"Existing results for flow rate {self.flow_rate.get():.1f} LPM have been successfully loaded."
+            )
+
+        except Exception as e:
+            error_msg = f"Error loading existing results: {str(e)}"
+            self.logger.log_error(error_msg)
+            messagebox.showerror("Error", error_msg)
+            
+            # Reset processing state
+            self.processing_active = False
+            self.progress_section.stop("Error loading results")
+            self.process_button.configure(state="normal")
+    
+    def _display_cfd_images(self, container, image_path, title):
         """Display a single CFD image with title in the given container"""
         # Add title
         ctk.CTkLabel(
@@ -1415,7 +2145,7 @@ class Tab4Manager:
             pil_image = Image.open(image_path)
             
             # Calculate sizing (smaller than when showing one image)
-            max_width = 550
+            max_width = 500
             max_height = 500
             
             # Calculate aspect ratio-preserving dimensions
@@ -1429,29 +2159,22 @@ class Tab4Manager:
             
             # Resize image
             pil_image = pil_image.resize((new_width, new_height), Image.LANCZOS)
+            ctk_image = ctk.CTkImage(light_image=pil_image, size=(new_width, new_height))
             
-            # Generate a unique key for this image that won't be overwritten
+            # Generate a unique key for this image
             image_key = f"cfd_{title.lower().replace(' ', '_')}"
             
-            # Initialize render_images if it doesn't exist
-            if not hasattr(self, 'render_images'):
-                self.render_images = {}
-            
-            # Store reference to avoid garbage collection with a consistent key
-            self.render_images[image_key] = ctk.CTkImage(light_image=pil_image, size=(new_width, new_height))
-            
-            # Save the path as a class attribute for persistence
-            setattr(self, f"{image_key}_path", image_path)
+            # Store reference to avoid garbage collection
+            self.render_images[image_key] = ctk_image
             
             # Display image centered
-            image_label = ctk.CTkLabel(container, image=self.render_images[image_key], text="")
+            image_label = ctk.CTkLabel(container, image=ctk_image, text="")
             image_label.pack(pady=5)
             
         except Exception as e:
             error_msg = f"Error loading {title} image: {str(e)}"
             ctk.CTkLabel(container, text=error_msg, font=("Arial", 12), wraplength=250).pack(expand=True)
             self.logger.log_error(error_msg)
-
 
     def _update_cfd_display(self, parent_container):
         """Create a side-by-side display of pressure and velocity images for CFD results"""
@@ -1514,7 +2237,7 @@ class Tab4Manager:
         
         # Display pressure image
         if os.path.exists(pressure_image_path):
-            self._display_single_cfd_image(pressure_frame, pressure_image_path, "Pressure Distribution")
+            self._display_cfd_images(pressure_frame, pressure_image_path, "Pressure Distribution")
         else:
             self.logger.log_warning(f"Pressure image not found at: {pressure_image_path}")
             ctk.CTkLabel(
@@ -1526,7 +2249,7 @@ class Tab4Manager:
         
         # Display velocity image
         if os.path.exists(velocity_image_path):
-            self._display_single_cfd_image(velocity_frame, velocity_image_path, "Velocity Distribution")
+            self._display_cfd_images(velocity_frame, velocity_image_path, "Velocity Distribution")
         else:
             self.logger.log_warning(f"Velocity image not found at: {velocity_image_path}")
             ctk.CTkLabel(
@@ -1543,563 +2266,44 @@ class Tab4Manager:
             font=("Arial", 14),
             text_color=UI_SETTINGS["COLORS"]["TEXT_DARK"]
         ).pack(pady=(5, 0))
-
-    # ====================================================================================================================
-    # ================================= BLENDER METHODS ==================================================================
-    # ====================================================================================================================
-
-    def _blender_worker(self, args):
-        try:
-            # Create required directories before running Blender
-            trisurf_dir = os.path.join(args["cfd_output_dir"], "constant", "triSurface")
-            os.makedirs(trisurf_dir, exist_ok=True)
-            
-            # Write the input files for Blender
-            with open("sdir.txt", "w") as f:
-                f.write(args["cfd_output_dir"])
-            
-            with open("geo_in.txt", "w") as f:
-                f.write(args["stl_path"])
-
-            # Get the root dir of the project
-            project_root = Path(__file__).resolve().parents[2]
-            source_dir = project_root / "data" / "Master_cfd_file"
-            shutil.copytree(source_dir, args["cfd_output_dir"], symlinks=False, ignore=None, 
-                                ignore_dangling_symlinks=False, dirs_exist_ok=True)
-            
-            self.logger.log_info(f"Starting Blender with STL path: {args['stl_path']}")
-            self.logger.log_info(f"Output directory: {trisurf_dir}")
-
-            blender_dir = project_root / "blender_ortho.py"
-            
-            proc = subprocess.Popen(
-                ["blender", "--background", "--python", blender_dir],
-                stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                universal_newlines=True
-            )
-            
-            # Process output in real-time
-            while proc.poll() is None:
-                line = proc.stdout.readline()
-                if line:
-                    self.logger.log_info(f"Blender: {line.strip()}")
-            
-            stdout, stderr = proc.communicate()
-            code = proc.returncode
-            
-            self.app.after(0, lambda: self._on_blender_done(code, stdout, stderr, args))
-        except Exception as e:
-            self.logger.log_error(f"Blender worker error: {e}")
-            # capture `e` as a default so it's available when the lambda runs
-            self.app.after(0, lambda e=e: self._on_worker_error("Blender", e))
-
-    def _check_blender_files(self, returncode, stdout, stderr, args):
-        """Check if necessary files exist before proceeding"""
-        if returncode != 0:
-            messagebox.showerror("Blender Error", stderr)
-            self.process_button.configure(state="normal")
-            return
-            
-        # Check if required STL files exist
-        inlet_path = os.path.join(args["cfd_output_dir"], "constant", "triSurface", "inlet.stl")
-        outlet_path = os.path.join(args["cfd_output_dir"], "constant", "triSurface", "outlet.stl")
-        wall_path = os.path.join(args["cfd_output_dir"], "constant", "triSurface", "wall.stl")
-        
-        self.logger.log_info(f"Checking for STL files: {inlet_path}, {outlet_path}, {wall_path}")
-        
-        files_exist = os.path.exists(inlet_path) and os.path.exists(outlet_path) and os.path.exists(wall_path)
-        
-        if not files_exist:
-            # Files don't exist yet, wait a bit longer before checking again (500ms)
-            self.logger.log_info("STL files not ready yet, checking again in 500ms")
-            self.app.after(500, lambda: self._check_blender_files(returncode, stdout, stderr, args))
-            return
-        
-        self.logger.log_info("All STL files found, proceeding to render assembly image")
-        
-        # Now that files exist, proceed with rendering assembly
-        preview = self._render_assembly_image(inlet_path, outlet_path, wall_path, args["cfd_output_dir"])
-        
-        if preview and os.path.exists(preview):
-            self.logger.log_info(f"Assembly image created: {preview}")
-            # Update UI with the preview image
-            self._update_render_display("postprocessing", preview)
-            self._select_tab("Post-processed Geometry")
-            
-            # Now proceed to CFD simulation
-            self.logger.log_info("Starting CFD simulation...")
-            self.cancel_requested = False
-            self.processing_active = True
-            self.update_progress("Running CFD simulation…", 85)
-            self.process_button.configure(text="Cancel", state="normal", command=self._request_cancel)
-            
-            threading.Thread(
-                target=self._cfd_worker,
-                args=(args["cfd_output_dir"],),
-                daemon=True
-            ).start()
-        else:
-            self.logger.log_error("Failed to generate assembly image")
-            messagebox.showerror("Error", "Failed to generate geometry preview image")
-            self.process_button.configure(state="normal")
-
-    def _on_blender_done(self, returncode, stdout, stderr, args):
-        if returncode != 0:
-            messagebox.showerror("Blender Error", stderr)
-            self.process_button.configure(state="normal")
-            return
-
-        # 1. Render the preview image
-        preview = self._render_assembly_image(
-            os.path.join(args["cfd_output_dir"], "constant", "triSurface", "inlet.stl"),
-            os.path.join(args["cfd_output_dir"], "constant", "triSurface", "outlet.stl"),
-            os.path.join(args["cfd_output_dir"], "constant", "triSurface", "wall.stl"),
-            args["cfd_output_dir"]
-        )
-
-        # 2. Show it on the "Post-processed Geometry" tab
-        self._update_render_display("postprocessing", preview)
-        
-        # Now that Blender processing is done, we can enable the Post-processed tab
-        self._select_tab("Post-processed Geometry")
-
-        # 3. Now kick off the CFD thread immediately (no extra user click)
-        self.cancel_requested = False
-        self.processing_active = True
-        self.update_progress("Running CFD simulation…", 85)
-        self.process_button.configure(text="Cancel", state="normal", command=self._request_cancel)
-
-        threading.Thread(
-            target=self._cfd_worker,
-            args=(args["cfd_output_dir"],),
-            daemon=True
-        ).start()
-
-    # ====================================================================================================================
-    # ================================= SIMULATION RELATED METHODS =======================================================
-    # ====================================================================================================================
-
-    def _get_full_cfd_path(self,flow_rate=None):
-        """
-        Get the full path to the CFD directory for the specified flow rate.
-        """
-        
-        if flow_rate is None:
-            flow_rate_read = self.flow_rate.get()
-        
-        # Format with exactly one decimal place
-        flow_rate_str = f"{flow_rate_read:.1f}"
-        # Replace decimal point with underscore
-        flow_dir = flow_rate_str.replace('.', '_')
-        # Add CFD_ suffix
-        cfd_dir = f"CFD_{flow_dir}"
-        
-        # Base path where CFD results are stored
-        # Get base path from the application's current patient folder
-        if hasattr(self.app, 'full_folder_path') and self.app.full_folder_path:
-            # Use the parent directory of the current patient folder
-            base_path = str(Path(self.app.full_folder_path))
-        else:
-            self.logger.log_warning("Full_folder_path is not set")
-        
-        return os.path.join(base_path, cfd_dir)
-
-    def _cfd_worker(self, cfd_dir):
-        try:
-            dirs = str(cfd_dir)
-
-            # 1. Write flow rate to pvfr.txt
-            step0 = os.path.join(dirs, "0")
-            os.makedirs(step0, exist_ok=True)
-            with open(os.path.join(step0, "pvfr.txt"), "w") as f:
-                f.write(f"vfr {self.flow_rate.get():.1f};\n#inputMode merge")
-
-            # 2. Combine STL files
-            surf_dir = os.path.join(dirs, "constant", "triSurface")
-            if not os.path.isdir(surf_dir):
-                raise FileNotFoundError(f"triSurface directory not found: {surf_dir}")
-
-            # remove old combined.stl
-            subprocess.run(["rm", "-f", "combined.stl"], cwd=surf_dir, check=True)
-            # cat all .stl into combined.stl
-            subprocess.run("cat *.stl >> combined.stl", cwd=surf_dir, shell=True, check=True)
-
-            if not os.path.exists(os.path.join(surf_dir, "combined.stl")):
-                raise FileNotFoundError("Failed to create combined.stl")
-
-            # 3. Kick off residual monitoring in background
-            t_mon = threading.Thread(target=self._monitor_residuals, args=(dirs,), daemon=True)
-            t_mon.start()
-
-            # 4. Ensure Allclean/Allrun exist and are executable
-            for script in ("Allclean", "Allrun"):
-                path = os.path.join(dirs, script)
-                if not os.path.isfile(path):
-                    raise FileNotFoundError(f"{script} not found: {path}")
-                if not os.access(path, os.X_OK):
-                    os.chmod(path, 0o755)
-                    self.logger.log_info(f"Made {script} executable")
-
-            # 5. Run Allclean then Allrun, inheriting stdout/stderr
-            for script in ("Allclean", "Allrun"):
-                self.logger.log_info(f"Running {script} in {dirs}")
-                subprocess.run([f"./{script}"], cwd=dirs, check=True)
-
-            # 6. All done—back to main thread
-            self.app.after(0, lambda: self._on_sim_done(cfd_dir))
-
-        except subprocess.CalledProcessError as e:
-            msg = (
-                f"{e.cmd!r} failed (code {e.returncode}).\n"
-                f"Output: {e.output or 'n/a'}\n"
-                f"Error: {e.stderr or 'n/a'}"
-            )
-            self.logger.log_error(msg)
-            self.app.after(0, lambda: self._on_worker_error("Simulation", msg))
-
-        except Exception as e:
-            msg = f"{type(e).__name__}: {e}"
-            self.logger.log_error(msg)
-            self.app.after(0, lambda: self._on_worker_error("Simulation", msg))
     
-    def _on_sim_done(self, cfd_dir):
-        """Process and visualize CFD results after simulation completes."""
-        try:
-            # Run ParaView script to generate visualization images
-            self.update_progress("Generating visualization images...", 95)
-            success = self._run_paraview(cfd_dir)
-            
-            if not success:
-                messagebox.showwarning("Warning", "ParaView post-processing failed, some images may be missing.")
-            
-            # Store the VTK file path for the interactive slice viewer
-            vtk_folder = Path(cfd_dir) / "VTK"
-            if vtk_folder.exists():
-                files = [f for f in os.listdir(vtk_folder) if f.endswith(".vtm") or f.endswith(".vtu")]
-                if files:
-                    # Sort to get the latest timestep
-                    self.vtk_file_path = os.path.join(vtk_folder, sorted(files)[-1])
-                    self.logger.log_info(f"Found VTK file for slice viewer: {self.vtk_file_path}")
-            else:
-                # Create VTK folder if needed and run foamToVTK
-                os.makedirs(vtk_folder, exist_ok=True)
-                try:
-                    self.logger.log_info("Running foamToVTK...")
-                    subprocess.run(["foamToVTK"], cwd=cfd_dir, check=True)
-                    
-                    # Now check for VTK files again
-                    files = [f for f in os.listdir(vtk_folder) if f.endswith(".vtm") or f.endswith(".vtu")]
-                    if files:
-                        self.vtk_file_path = os.path.join(vtk_folder, sorted(files)[-1])
-                except Exception as e:
-                    self.logger.log_error(f"foamToVTK error: {str(e)}")
-            
-            # Update the CFD tab display with newly generated images
-            pressure_images = list(Path(cfd_dir).glob("p_cut_1.png"))
-            velocity_images = list(Path(cfd_dir).glob("v_cut_1.png"))
-            
-            # Now enable the CFD tab and display results
-            if pressure_images or velocity_images:
-                self._update_render_display("cfd", None)  # This will trigger the _update_cfd_display method
-                self._select_tab("CFD Simulation")
-            
-            # Now finalize everything
-            self._finalize_processing()
-            self.process_button.configure(text="Start Processing", state="normal")
-            
-            # Enable preview and export buttons now that everything is done
-            self.preview_button.configure(state="normal")
-            self.export_button.configure(state="normal")
-            
-        except Exception as e:
-            error_msg = f"Error in post-processing: {str(e)}"
-            self.logger.log_error(error_msg)
-            messagebox.showerror("Error", error_msg)
-            self.process_button.configure(state="normal")
-    
-    def _run_paraview(self, cfd_dir):
+
+    def prune_cfd_folder(self, cfd_dir):
         """
-        Simple function to run paraview_ortho.py to generate visualization images.
-        Assumes sdir.txt already exists with correct content.
+        Remove all OpenFOAM “scratch” folders so you only keep:
+        - case.foam
+        - VTK/
+        - *_CFD.png
+        - constant/triSurface/
         """
-        try:
-            # 1. Verify case.foam exists
-            case_foam_path = os.path.join(cfd_dir, "case.foam")
-            if not os.path.exists(case_foam_path):
-                self.logger.log_error(f"case.foam file not found at: {case_foam_path}")
-                return False
-            
-            # 2. Run the paraview script
-            self.logger.log_info("Running ParaView script")
-            self.update_progress("Generating visualization images...", 95)
-            
-            # Use absolute path for the script to avoid any path issues
-            main_dir = os.path.dirname(os.path.abspath(sys.argv[0]))
-            script_path = os.path.join(main_dir, "paraview_ortho.py")
-            
-            # Run the command
-            cmd = ["pvbatch", script_path]
-            self.logger.log_info(f"Command: {' '.join(cmd)}")
-            
-            process = subprocess.Popen(
-                cmd,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                universal_newlines=True
-            )
-            
-            # Wait for completion and get output
-            stdout, stderr = process.communicate()
-            
-            # Log significant output
-            if stdout:
-                self.logger.log_info(f"ParaView output: {stdout.strip()}")
-            
-            if stderr:
-                self.logger.log_error(f"ParaView error: {stderr.strip()}")
-            
-            if process.returncode != 0:
-                self.logger.log_error(f"ParaView process failed with return code: {process.returncode}")
-                return False
-            
-            # 3. Create CFD-tagged copies of generated images
-            for img in ["p_cut_1.png", "v_cut_1.png"]:
-                img_path = os.path.join(cfd_dir, img)
-                if os.path.exists(img_path):
-                    # Create CFD-tagged copy
-                    cfd_img = img.replace(".png", "_CFD.png")
-                    cfd_img_path = os.path.join(cfd_dir, cfd_img)
-                    shutil.copy(img_path, cfd_img_path)
-                    self.logger.log_info(f"Created tagged copy: {cfd_img}")
-            
-            return True
-            
-        except Exception as e:
-            self.logger.log_error(f"Error running ParaView: {str(e)}")
-            return False
+        p = Path(cfd_dir)
 
-    def _on_sim_cancelled(self):
-        messagebox.showinfo("Cancelled", "Simulation stopped by user")
-        self._reset_processing_state()
+        # 1) directories to nuke wholesale
+        for d in ("0", "system", "gnuplot"):
+            target = p / d
+            if target.exists():
+                shutil.rmtree(target)
 
-    def _cfd_results_exist(self, flow_rate=None):
-        """
-        Check if CFD results already exist for the specified flow rate.
-        Returns True if the case.foam file exists in the CFD directory.
-        """
-        cfd_path = self._get_full_cfd_path(flow_rate)
-        
-        # Check if directory exists
-        if not os.path.exists(cfd_path):
-            return False
-        
-        # Check if case.foam file exists (indicator that simulation completed)
-        case_foam_path = os.path.join(cfd_path, "case.foam")
-        return os.path.exists(case_foam_path)
-    
-    def _monitor_residuals(self, dirs):
-        """Monitor and update residual plots during simulation"""
-        gnuplot_dir = os.path.join(dirs, "gnuplot")
-        
-        # Check if the directory exists
-        if not os.path.exists(gnuplot_dir):
-            self.logger.log_warning(f"Gnuplot directory not found at {gnuplot_dir}")
-            return
-            
-        while not self.cancel_requested:
-            try:
-                # Run the gnuplot script if it exists (same as GUI_ortho approach)
-                if os.path.exists(os.path.join(gnuplot_dir, "gnuplot_residuals")):
-                    subprocess.run(
-                        ['/bin/bash', '-c', "bash ./gnuplot_residuals"], 
-                        cwd=gnuplot_dir, 
-                        check=False
-                    )
-                
-                # Check if the plot was generated
-                if os.path.exists(os.path.join(gnuplot_dir, "residual_plot.png")):
-                    self.residual_plot_path = os.path.join(gnuplot_dir, "residual_plot.png")
-                
-                # Sleep before checking again
-                time.sleep(2)
-                
-                # Check if simulation is complete - use same condition as GUI_ortho
-                if os.path.exists(os.path.join(dirs, "20", "U")):  
-                    break
-            except Exception as e:
-                self.logger.log_error(f"Error monitoring residuals: {str(e)}")
-                time.sleep(10)
+        # 2) mesh & scripts
+        mesh_dir = p / "constant" / "polyMesh"
+        if mesh_dir.exists():
+            shutil.rmtree(mesh_dir)
 
+        for fname in ("Allrun", "Allclean"):
+            f = p / fname
+            if f.exists():
+                f.unlink()
 
-    def _load_existing_cfd(self):
-        """Load existing CFD results for the current flow rate."""
-        try:
-            # Show a progress indicator
-            self.progress_section.start("Loading existing results...", indeterminate=True)
-            
-            # Get the CFD path for the current flow rate
-            cfd_path = self._get_full_cfd_path()
-            self.logger.log_info(f"Loading results from: {cfd_path}")
-            
-            # Update the processing state
-            self.processing_active = True
-            
-            # Load segmentation results
-            self.update_progress("Loading segmentation results...", 30)
-            
-            # Try to find the segmentation image - look in several possible locations
-            segmentation_image = None
-            segmentation_paths_to_check = [
-                # Check in the stl folder first (where it's normally saved)
-                Path(self.app.full_folder_path) / "stl",
-                # Also check in the CFD folder (might be a copy there)
-                Path(cfd_path)
-            ]
-            
-            for folder in segmentation_paths_to_check:
-                if folder.exists():
-                    # Look for prediction images with various naming patterns
-                    for pattern in ["*_pred.png", "*_prediction.png", "*_segmentation.png", "*_geo.png"]:
-                        pred_images = list(folder.glob(pattern))
-                        if pred_images:
-                            segmentation_image = str(pred_images[0])
-                            self.logger.log_info(f"Found segmentation image: {segmentation_image}")
-                            break
-                
-                # If we found an image, we can stop looking
-                if segmentation_image:
-                    break
-                    
-            # If we found a segmentation image, update the display
-            if segmentation_image:
-                self._update_render_display("segmentation", segmentation_image)
-                
-                # Try to find the STL file corresponding to this image
-                stl_file = Path(segmentation_image).with_suffix(".stl")
-                if stl_file.exists():
-                    self.current_stl_path = str(stl_file)
-                    self.logger.log_info(f"Found STL file: {self.current_stl_path}")
-                else:
-                    # Look for any STL file in the stl folder or in the CFD folder
-                    for folder in segmentation_paths_to_check:
-                        stl_files = list(folder.glob("*.stl"))
-                        for stl_file in stl_files:
-                            # Skip component STL files
-                            if stl_file.name in ["inlet.stl", "outlet.stl", "wall.stl"]:
-                                continue
-                            self.current_stl_path = str(stl_file)
-                            self.logger.log_info(f"Found alternate STL file: {self.current_stl_path}")
-                            break
-                        
-                        if hasattr(self, 'current_stl_path'):
-                            break
-            else:
-                self.logger.log_warning("No segmentation image found. Skipping segmentation display.")
+        # 3) any numeric time‐step directories
+        for sub in p.iterdir():
+            if sub.is_dir() and sub.name.isdigit():
+                shutil.rmtree(sub)
 
-            # Check multiple possible volume file locations
-            volume_file_paths = [
-                Path(cfd_path) / "airway_volume.txt",
-                Path(self.app.full_folder_path) / "airway_volume.txt",
-                Path(self.app.full_folder_path) / "volume.txt",
-                Path(self.app.full_folder_path) / "volume_calculation.txt"
-            ]
-            
-            volume_found = False
-            for volume_path in volume_file_paths:
-                if volume_path.exists():
-                    with open(volume_path, 'r') as f:
-                        volume_str = f.read().strip()
-                        self.airway_volume = float(volume_str) if volume_str.replace('.', '', 1).isdigit() else volume_str
-                        self.logger.log_info(f"Loaded airway volume from {volume_path}: {self.airway_volume}")
-                        volume_found = True
-                        break
-            
-            # Load post-processed geometry
-            self.update_progress("Loading post-processed geometry...", 60)
-            
-            # Look for assembly image
-            assembly_path = os.path.join(cfd_path, "constant", "triSurface")
-            assembly_images = list(Path(assembly_path).glob("*assembly.png"))
-            if assembly_images:
-                self.logger.log_info(f"Found assembly image: {assembly_images[0]}")
-                self._update_render_display("postprocessing", str(assembly_images[0]))
-            else:
-                self.logger.log_warning("No assembly visualization found.")
-            
-            # Load CFD simulation results
-            self.update_progress("Loading CFD simulation results...", 90)
-            
-            # Check if the case.foam file exists
-            case_foam_path = os.path.join(cfd_path, "case.foam")
-            if not os.path.exists(case_foam_path):
-                self.logger.log_warning(f"case.foam file not found at: {case_foam_path}")
-                messagebox.showwarning(
-                    "Missing Files",
-                    "The simulation results appear to be incomplete. Some files may be missing."
-                )
-            
-            # Check for CFD visualization images
-            p_cut_1 = os.path.join(cfd_path, "p_cut_1.png")
-            v_cut_1 = os.path.join(cfd_path, "v_cut_1.png")
-            
-            # If the images don't exist, run ParaView to generate them
-            if not (os.path.exists(p_cut_1) and os.path.exists(v_cut_1)):
-                self.logger.log_info("CFD visualization images not found. Running ParaView...")
-                self.update_progress("Generating visualization images...", 85)
-                
-                # Run ParaView script to generate images
-                success = self._run_paraview(cfd_path)
-                if not success:
-                    self.logger.log_warning("Failed to generate CFD visualization images")
-                    messagebox.showwarning(
-                        "Visualization Failed",
-                        "Failed to generate CFD visualization images. Some visualizations may be missing."
-                    )
-            
-            # Now check for VTK files
-            vtk_folder = Path(cfd_path) / "VTK"
-            if not vtk_folder.exists() or not any(vtk_folder.glob("*.vt*")):
-                # Run foamToVTK to create VTK files
-                try:
-                    self.logger.log_info("Running foamToVTK...")
-                    self.update_progress("Creating VTK files for interactive viewer...", 95)
-                    os.makedirs(vtk_folder, exist_ok=True)
-                    subprocess.run(["foamToVTK"], cwd=cfd_path, check=True)
-                except Exception as e:
-                    self.logger.log_error(f"foamToVTK error: {str(e)}")
-            
-            # Find the VTK file for the interactive slice viewer
-            if vtk_folder.exists():
-                files = list(vtk_folder.glob("*.vtm")) or list(vtk_folder.glob("*.vtu"))
-                if files:
-                    # Sort to get the latest timestep
-                    self.vtk_file_path = str(sorted(files)[-1])
-                    self.logger.log_info(f"Found VTK file for slice viewer: {self.vtk_file_path}")
-            
-            # Update the CFD visualization
-            self._update_render_display("cfd", None)  # This will trigger the _update_cfd_display method
-            
-            # Switch to CFD tab
-            self._select_tab("CFD Simulation")
-            
-            # Finalize
-            self._finalize_processing()
-            
-            # Show success message
-            messagebox.showinfo(
-                "Results Loaded",
-                f"Existing results for flow rate {self.flow_rate.get():.1f} LPM have been successfully loaded."
-            )
+        # 4) any log files
+        for log in p.glob("log.*"):
+            log.unlink()
 
-        except Exception as e:
-            error_msg = f"Error loading existing results: {str(e)}"
-            self.logger.log_error(error_msg)
-            messagebox.showerror("Error", error_msg)
-            
-            # Reset processing state
-            self.processing_active = False
-            self.progress_section.stop("Error loading results")
-            self.process_button.configure(state="normal")
+        print(f"Pruned CFD folder; only case.foam, VTK/, *_CFD.png, and triSurface remain in {cfd_dir}")
 
     # ==========================================================
     ###### IMAGE RENDER AND INTERACTIVE 3D MODEL METHODS #######
@@ -2126,97 +2330,56 @@ class Tab4Manager:
             return "XX"  # Return default if there's an error
 
     def _render_assembly_image(self, inlet_path, outlet_path, wall_path, output_dir):
-        # Directly render the assembly image using the stl_assem_image_render.py script
-        # Returns: Path to the generated image, or None if failed
+        """
+        Render the assembly.png and then rename it to <initials>_<scan_date>_assem.png
+        in the directory where it was created.
+        """
         try:
-            # Import the render_assembly function directly
             from gui.utils.stl_assem_image_render import render_assembly
-            
-            # Convert paths to strings
-            inlet_path_str = str(inlet_path)
-            outlet_path_str = str(outlet_path)
-            wall_path_str = str(wall_path)
-            
-            # Call the function with offscreen=True
-            render_assembly(inlet_path_str, outlet_path_str, wall_path_str, True) 
-            # The function saves the image as "assembly.png" in the directory of inlet_path
-            output_file = os.path.join(os.path.dirname(inlet_path_str), "assembly.png") 
-            
-            # Check if the file was created
-            if os.path.exists(output_file):
-                # If an output directory was specified, generate a custom filename
-                if output_dir:
-                    # Get patient initials from patient name
-                    patient_name = self.app.patient_name.get() if hasattr(self.app, 'patient_name') else "Anonymous"
-                    patient_initials = self._get_patient_initials(patient_name)
-                    
-                    # Get scan date - could be from DOB or a specific scan date field if it exists
-                    # For this example, we'll use the current date if scan date isn't available
-                    scan_date = getattr(self.app, 'scan_date', None)
-                    if not scan_date:
-                        # Format current date as YYYY-MM-DD
-                        scan_date = "No Date"
-                    
-                    # Create filename with format: initials_date_assem.png
-                    assem_filename = f"{patient_initials}_{scan_date}_assem.png"
-                    target_file = os.path.join(output_dir, assem_filename)
-                    self.assem_filename = assem_filename
-                    shutil.copy(output_file, target_file)
-                    return target_file
-                return output_file
-            else:
-                self.logger.log_error("Assembly rendering did not produce an output file")
+
+            inlet_path = str(inlet_path)
+            outlet_path = str(outlet_path)
+            wall_path = str(wall_path)
+
+            # generate the default assembly.png in the triSurface folder
+            render_assembly(inlet_path, outlet_path, wall_path, offscreen=True)
+
+            # where the script always drops its assembly.png
+            tri_dir = os.path.dirname(inlet_path)
+            original_png = os.path.join(tri_dir, "assembly.png")
+            if not os.path.exists(original_png):
+                self.logger.log_error("Expected assembly.png but it was not created.")
                 return None
-                
+
+            # Get initials and scan_date (a plain string, set in _refresh_patient_info)
+            patient_name     = self.app.patient_name.get().strip() or "Anonymous"
+            patient_initials = self._get_patient_initials(patient_name)
+
+            # self.scan_date is set during _refresh_patient_info()
+            scan_date = getattr(self, "scan_date", None)
+            if not scan_date or scan_date in ("", "No Date"):
+                # fallback if user never supplied a date
+                scan_date = "NoDate"
+
+            # build the new filename and move
+            new_filename = f"{patient_initials}_{scan_date}_assem.png"
+            target_png   = os.path.join(tri_dir, new_filename)
+
+            # Renaming file with patient info
+            os.replace(original_png, target_png)
+            # Copying file to main cfd output directory
+            main_cfd_dir = os.path.abspath(output_dir)   
+            shutil.copy(target_png, main_cfd_dir)
+
+            # if you also want a copy in output_dir root, just uncomment:
+            main_cfd_dir = os.path.abspath(output_dir)   # e.g. ".../CFD_10_0"
+            shutil.copy(target_png, os.path.join(main_cfd_dir, os.path.basename(target_png)))
+
+            return target_png
+
         except Exception as e:
-            self.logger.log_error(f"Error in assembly rendering: {str(e)}")
+            self.logger.log_error(f"Error in assembly rendering: {e}")
             return None
-    
-    def _display_single_cfd_image(self, container, image_path, title):
-        """Display a single CFD image with title in the given container"""
-        # Add title
-        ctk.CTkLabel(
-            container,
-            text=title,
-            font=("Arial", 14, "bold"),
-            text_color=UI_SETTINGS["COLORS"]["TEXT_DARK"]
-        ).pack(pady=(0, 5))
-        
-        try:
-            # Load and display image
-            pil_image = Image.open(image_path)
-            
-            # Calculate sizing (smaller than when showing one image)
-            max_width = 550
-            max_height = 500
-            
-            # Calculate aspect ratio-preserving dimensions
-            orig_width, orig_height = pil_image.size
-            width_ratio = max_width / orig_width
-            height_ratio = max_height / orig_height
-            scale_ratio = min(width_ratio, height_ratio)
-            
-            new_width = int(orig_width * scale_ratio)
-            new_height = int(orig_height * scale_ratio)
-            
-            # Resize image
-            pil_image = pil_image.resize((new_width, new_height), Image.LANCZOS)
-            ctk_image = ctk.CTkImage(light_image=pil_image, size=(new_width, new_height))
-            
-            # Generate a unique key for this image
-            image_key = f"cfd_{title.lower().replace(' ', '_')}"
-            
-            # Store reference to avoid garbage collection
-            self.render_images[image_key] = ctk_image
-            
-            # Display image centered
-            image_label = ctk.CTkLabel(container, image=ctk_image, text="")
-            image_label.pack(pady=5)
-            
-        except Exception as e:
-            error_msg = f"Error loading {title} image: {str(e)}"
-            ctk.CTkLabel(container, text=error_msg, font=("Arial", 12), wraplength=250).pack(expand=True)
-            self.logger.log_error(error_msg)
     
     def _interactive_blender_results(self):
         """
@@ -2314,87 +2477,108 @@ class Tab4Manager:
         except Exception as e:
             tk.messagebox.showerror("Error", f"Failed to display interactive STL viewer:\n{e}")
 
-    # --------------------------------------------------
-    ######## PDF REPORT-RELATED METHODS ################
-    # --------------------------------------------------
-    def _preview_report(self):
+    # ----------------------------------------------------------------------
+    ######## RESULTS REPORT AND DATA EXPORT RELATED METHODS ################
+    # ----------------------------------------------------------------------
+    def _report_image_paths(self):
         """
-        Generate a preview PDF (with watermarks, etc.), then display it
-        in the PDF viewer frame.
+        Gather up all the images needed for the report based on current flow rate.
+        Returns a dict with:
+          - cfd_dir                     : str
+          - postprocessed_image_path    : str or None
+          - cfd_pressure_image_path     : str or None
+          - cfd_velocity_image_path     : str or None
+          - additional_images           : List[str]
         """
         self._refresh_patient_info()
-        try:
+        flow_str = f"{self.flow_rate.get():.1f}".replace('.', '_')
+        cfd_dir = os.path.join(self.app.full_folder_path, f"CFD_{flow_str}")
 
-            
-            # Create a temporary file for the preview
-            with tempfile.NamedTemporaryFile(suffix='.pdf', delete=False) as temp_file:
-                preview_pdf_path = temp_file.name
-            
-            # Get the CFD path for the current flow rate
-            flow_str = f"{self.flow_rate.get():.1f}".replace('.', '_')
-            cfd_dir = os.path.join(self.app.full_folder_path, f"CFD_{flow_str}")
-            
-            # Dynamically locate the assembly image file
-            postprocessed_image_path = None
-            assem_files = list(Path(cfd_dir).glob("*assembly.png"))
-            if assem_files:
-                postprocessed_image_path = str(assem_files[0])
-            else:
-                # Check in triSurface directory for assembly.png if it exists
-                trisurf_path = os.path.join(cfd_dir, "constant", "triSurface", "assembly.png")
-                if os.path.exists(trisurf_path):
-                    postprocessed_image_path = trisurf_path
-            
-            if not postprocessed_image_path:
-                messagebox.showwarning("Warning", "Assembly image file not found. Report may be incomplete.")
-            
-            # Similarly, find pressure and velocity images
-            pressure_images = list(Path(cfd_dir).glob("*p_plot.png")) or list(Path(cfd_dir).glob("*pressure*.png"))
-            velocity_images = list(Path(cfd_dir).glob("*u_plot.png")) or list(Path(cfd_dir).glob("*velocity*.png"))
-            
-            cfd_pressure_image_path = str(pressure_images[0]) if pressure_images else None
-            cfd_velocity_image_path = str(velocity_images[0]) if velocity_images else None
+        # 1) assembly / post‑processed geometry
+        postprocessed = None
+        # try renamed file first
+        for p in Path(cfd_dir).glob("*_assem.png"):
+            postprocessed = str(p); break
+        # fallback to old name if needed
+        if not postprocessed:
+            for p in Path(cfd_dir).glob("*assembly.png"):
+                postprocessed = str(p); break
+        if not postprocessed:
+            messagebox.showwarning("Warning", "Assembly image not found; report may be incomplete.")
 
-            image_files = sorted(Path(cfd_dir).glob("*.png"))
-            image_paths = [str(p) for p in image_files if p.is_file()]
+        # 2) pressure & velocity
+        pressure = None
+        for p in Path(cfd_dir).glob("*p_plot.png"):
+            pressure = str(p); break
+        if not pressure:
+            for p in Path(cfd_dir).glob("*pressure*.png"):
+                pressure = str(p); break
 
-            # Call the standalone module function:
-            success = generate_airway_report(
-                pdf_path=preview_pdf_path,
-                cfd_dir=cfd_dir,
-                patient_name=self.app.patient_name.get(),
-                patient_dob=self.app.dob.get(),
-                physician=self.app.patient_doctor_var.get(),
-                analysis_type=self.analysis_option.get(),
-                airway_volume=self.airway_volume,       
-                flow_rate_val=self.flow_rate.get(),     # LPM
-                airway_resistance=None,                 # or a real value if you have it
-                postprocessed_image_path=postprocessed_image_path,
-                cfd_pressure_image_path=cfd_pressure_image_path,
-                cfd_velocity_image_path=cfd_velocity_image_path,
-                add_preview_elements=True,  # <---- sets the watermark or "preview" note
-                date_of_report=None,         # will default to current date/time
-                additional_images=image_paths
-            )
+        velocity = None
+        for v in Path(cfd_dir).glob("*v_plot.png"):
+            velocity = str(v); break
+        if not velocity:
+            for v in Path(cfd_dir).glob("*velocity*.png"):
+                velocity = str(v); break
 
-            if success:
-                self.preview_pdf_path = preview_pdf_path
+        # 3) any other PNGs in cfd_dir
+        additional = [ str(p) for p in sorted(Path(cfd_dir).glob("*.png")) ]
 
-                # Display in PDF viewer
-                self._display_pdf_in_viewer(preview_pdf_path, is_preview=True)
-                
-                # Enable the export button if needed
-                if self.export_button.cget("state") == "disabled":
-                    self.export_button.configure(state="normal")
-                    
-                return True
-            else:
-                messagebox.showerror("Error", "Failed to generate preview PDF.")
-                return False
-                
-        except Exception as e:
-            messagebox.showerror("Error", f"Failed to generate PDF preview:\n{str(e)}")
+        return {
+            "cfd_dir": cfd_dir,
+            "postprocessed_image_path": postprocessed,
+            "cfd_pressure_image_path": pressure,
+            "cfd_velocity_image_path": velocity,
+            "additional_images": additional
+        }
+
+    def _preview_report(self):
+        """
+        Generate a preview PDF and display it in the embedded viewer,
+        automatically picking up all the images via _report_image_paths().
+        """
+        # refresh patient fields
+        self._refresh_patient_info()
+
+        # gather image paths
+        paths = self._report_image_paths()
+
+        # create a temp PDF
+        with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as tmp:
+            preview_pdf = tmp.name
+
+        # call your report generator
+        success = generate_airway_report(
+            pdf_path=preview_pdf,
+            cfd_dir=paths["cfd_dir"],
+            patient_name=self.app.patient_name.get(),
+            patient_dob=self.app.dob.get(),
+            physician=self.app.patient_doctor_var.get(),
+            analysis_type=self.analysis_option.get(),
+            airway_volume=self.airway_volume,
+            flow_rate_val=self.flow_rate.get(),
+            airway_resistance=None,
+            postprocessed_image_path=paths["postprocessed_image_path"],
+            cfd_pressure_image_path=paths["cfd_pressure_image_path"],
+            cfd_velocity_image_path=paths["cfd_velocity_image_path"],
+            add_preview_elements=True,   # watermark
+            date_of_report=None,
+            additional_images=paths["additional_images"],
+            approx_min_csa=self.approx_min_csa
+        )
+
+        if not success:
+            messagebox.showerror("Error", "Failed to generate preview PDF.")
             return False
+
+        self.preview_pdf_path = preview_pdf
+        self._display_pdf_in_viewer(preview_pdf, is_preview=True)
+
+        # enable export/save buttons if they were disabled
+        if self.export_button.cget("state") == "disabled":
+            self.export_button.configure(state="normal")
+
+        return True
         
     def _display_pdf_in_viewer(self, pdf_path, is_preview=False):
         """Display the PDF in an embedded viewer"""
@@ -2515,7 +2699,8 @@ class Tab4Manager:
                 cfd_pressure_image_path=cfd_pressure_image_path,
                 cfd_velocity_image_path=cfd_velocity_image_path,
                 add_preview_elements=False,  # no watermark in final PDF
-                additional_images=image_paths
+                additional_images=image_paths,
+                approx_min_csa=self.approx_min_csa
             )
 
             if success:
@@ -2532,3 +2717,85 @@ class Tab4Manager:
         except Exception as e:
             messagebox.showerror("Error", f"Failed to save report:\n{str(e)}")
             return False
+    
+    def _save_results_to_drive(self):
+        """Generate the final PDF report and copy the entire session (including report) onto the USB."""
+        # 1. Make sure we have results
+        src = getattr(self.app, "full_folder_path", None)
+        if not src or not os.path.exists(src):
+            tk.messagebox.showerror("Error", "No results folder to save.")
+            return
+
+        # 2. Grab the mount path chosen in Tab 2
+        dest_root = getattr(self.app, "selected_drive_path", None)
+        if not dest_root or not os.path.isdir(dest_root):
+            tk.messagebox.showerror(
+                "Error",
+                "Could not find the original USB mount. "
+                "Please go back and re‑select your drive."
+            )
+            return
+
+        # 3. Build the folders as /<usb‑mount>/<user>/<patient>/<session>
+        gui_user = self.app.username_var.get().strip() or "UnknownUser"
+        patient  = self.app.patient_name.get().strip() or "UnknownPatient"
+        session  = os.path.basename(src.rstrip(os.sep))
+        target   = os.path.join(dest_root, gui_user, patient, session)
+
+        try:
+            # Ensure the target directory exists
+            os.makedirs(target, exist_ok=True)
+
+            # Segmentation-only → copy everything *except* any CFD_ directories
+            if self.analysis_option.get() == "Upper Airway Segmentation":
+                for name in os.listdir(src):
+                    # skip any CFD subfolders
+                    if name.startswith("CFD_"):
+                        continue
+                    s = os.path.join(src, name)
+                    d = os.path.join(target, name)
+                    if os.path.isdir(s):
+                        shutil.copytree(s, d, dirs_exist_ok=True)
+                    else:
+                        shutil.copy2(s, d)
+                tk.messagebox.showinfo("Success", f"Segmentation results saved to:\n{target}")
+                return
+
+            if "Simulation" in self.analysis_option.get():
+                # --- A) Generate the PDF report **into** your session folder first ---
+                # (so it gets picked up by the copy loop below)
+                flow_str = f"{self.flow_rate.get():.1f}".replace('.', '_')
+                pdf_filename = f"airway_analysis_flow_{flow_str}.pdf"
+                pdf_path = os.path.join(src, pdf_filename)
+
+                # Call your existing report generator:
+                generate_airway_report(
+                    pdf_path=pdf_path,
+                    cfd_dir=os.path.join(src, f"CFD_{flow_str}"),
+                    patient_name=self.app.patient_name.get(),
+                    patient_dob=self.app.dob.get(),
+                    physician=self.app.patient_doctor_var.get(),
+                    analysis_type=self.analysis_option.get(),
+                    airway_volume=self.airway_volume,
+                    flow_rate_val=self.flow_rate.get(),
+                    airway_resistance=None,
+                    postprocessed_image_path=None,   # let generate pick up default
+                    cfd_pressure_image_path=None,
+                    cfd_velocity_image_path=None,
+                    add_preview_elements=False,
+                    additional_images=[]            # or gather if you need
+                )
+
+                # --- B) Copy **all** contents of the session folder (now including the PDF) ---
+                for name in os.listdir(src):
+                    s = os.path.join(src, name)
+                    d = os.path.join(target, name)
+                    if os.path.isdir(s):
+                        shutil.copytree(s, d, dirs_exist_ok=True)
+                    else:
+                        shutil.copy2(s, d)
+
+            tk.messagebox.showinfo("Success", f"All results & report saved to:\n{target}")
+
+        except Exception as e:
+            tk.messagebox.showerror("Error", f"Failed to save results to drive:\n{e}")

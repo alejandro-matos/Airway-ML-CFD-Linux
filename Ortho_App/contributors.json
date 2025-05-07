@@ -1,9 +1,9 @@
 [
     {
-        "name": "Carlos F. Lange, Ph.D., P.Eng.",
-        "title": "Associate Professor, Faculty of Engineering",
-        "email": "clange@ualberta.ca",
-        "department": "Mechanical Engineering"
+        "name": "Silvia Gianoni-Capenakas, DDS, Ph.D.",
+        "title": "Clinical Assistant Professor, Faculty of Medicine & Dentistry",
+        "email": "capenaka@ualberta.ca",
+        "department": "Dentistry"
     },
     {
         "name": "Manuel Lagravere Vich, DDS, Ph.D.",
@@ -12,10 +12,10 @@
         "department": "Dentistry"
     },
     {
-        "name": "Silvia Gianoni-Capenakas, DDS, Ph.D.",
-        "title": "Professor, Faculty of Medicine & Dentistry",
-        "email": "capenaka@ualberta.ca",
-        "department": "Dentistry"
+        "name": "Carlos F. Lange, Ph.D., P.Eng.",
+        "title": "Associate Professor, Faculty of Engineering",
+        "email": "clange@ualberta.ca",
+        "department": "Mechanical Engineering"
     },
     {
         "name": "Alejandro Matos Camarillo, MSc.",

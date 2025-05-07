@@ -27,7 +27,6 @@ PATH_SETTINGS: Dict[str, Path] = {
     "CONTRIB_DIR": Path(__file__).resolve().parents[2] / "contributors.json",
 }
 
-
 # UI settings
 UI_SETTINGS: Dict[str, Any] = {
     "FONTS": {
@@ -40,10 +39,10 @@ UI_SETTINGS: Dict[str, Any] = {
         "BUTTON_LABEL":("Arial", 20),
         # For contributors section
         "CONTRIB_BUTTON":("Arial", 18, "bold"),
-        "SUBHEADER": ("Roboto", 14, "bold"),
-        "NORMAL_ITALIC": ("Roboto", 12, "italic"),
-        "SMALL": ("Roboto", 11),
-        "LARGE_SYMBOL": ("Roboto", 20, "bold"),  # For the close button X
+        "CONTRIB_NAME": ("Roboto", 20, "bold"),
+        "NORMAL_ITALIC": ("Roboto", 16, "italic"),
+        "SMALL_CONTR": ("Roboto", 14),
+        "LARGE_SYMBOL": ("Roboto", 22, "bold"),  # For the close button X
     },
     "COLORS": {
         "PRIMARY": "#255233",
@@ -255,5 +254,11 @@ TAB4_SETTINGS: Dict[str, Any] = {
         "border_width": 0
     },
     # 5) optional: shadow-bar color under the tabs container
-    "SHADOW_COLOR": "#ababab"
+    "SHADOW_COLOR": "#ababab",
+    "RENDER_BUTTON": {
+        "FG_COLOR":    "#006a9f",
+        "HOVER_COLOR": "#005380",
+        "WIDTH": 350,
+        "HEIGHT": 60,
+    },
 }

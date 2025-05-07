@@ -20,20 +20,23 @@ class ToolTip:
         
         self.tooltip_window = tk.Toplevel(self.widget)
         self.tooltip_window.wm_overrideredirect(True)
+        # make the window itself lightyellow, no highlight/border
+        self.tooltip_window.configure(bg="lightyellow", highlightthickness=0, bd=0)
         self.tooltip_window.geometry(f"+{x}+{y}")
-        
+
         label = tk.Label(
             self.tooltip_window,
             text=self.text,
-            background="lightyellow",
-            relief="solid",
-            borderwidth=1,
+            bg="lightyellow",        # match the window bg
+            relief="flat",           # no border
+            borderwidth=0,
             font=self.font,
             wraplength=650,
-            justify="left",  # Left-align text
-            anchor="w"       # West (left) anchor for text
+            justify="left",
+            anchor="w",
+            padx=10, pady=8          # internal padding now
         )
-        label.pack(padx=10, pady=8, fill="both")
+        label.pack(fill="both")
         
     def hide_tooltip(self, event=None):
         """Hide/destroy the tooltip window."""

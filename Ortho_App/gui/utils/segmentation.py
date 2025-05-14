@@ -10,6 +10,8 @@ import re
 from gui.utils.basic_utils import AppLogger
 import time
 from scipy.spatial import ConvexHull
+import shutil
+import tkinter.messagebox as messagebox
 
 class AirwaySegmentator:
     def __init__(self, input_file=None, input_folder=None, output_folder=None, callback=None, input_type="dicom"):
@@ -172,14 +174,17 @@ class AirwaySegmentator:
             raise
                 
     def cancel_processing(self):
-        """Cancel the current processing if any subprocess is running"""
+        """
+        Cancel the current processing if any subprocess is running 
+        and clean up temporary files
+        """
         # Log that cancellation was requested
         self.logger.log_info("Cancellation requested by user")
         
-        # tell Python loops to stop
+        # Tell Python loops to stop
         self.cancel_event.set()
 
-        # kill any live subprocess
+        # Kill any live subprocess
         if self.current_subprocess and self.current_subprocess.poll() is None:
             self.logger.log_info("Terminating subprocess...")
             self.current_subprocess.terminate()
@@ -188,6 +193,55 @@ class AirwaySegmentator:
             except subprocess.TimeoutExpired:
                 self.logger.log_info("Subprocess didn't terminate, killing it...")
                 self.current_subprocess.kill()
+        
+        # Now handle file cleanup
+        try:
+            # Only attempt cleanup if output folder exists
+            if self.output_folder and self.output_folder.exists():
+                # Check if stl files have been generated (completed work)
+                stl_folder = self.stl_folder
+                stl_complete = stl_folder.exists() and any(f.name.endswith(".stl") for f in stl_folder.iterdir())
+                
+                # Delete folders - only delete stl folder if no complete STL files
+                folders_to_delete = [self.nifti_folder, self.prediction_folder]
+                
+                if not stl_complete:
+                    folders_to_delete.append(self.stl_folder)
+                
+                # Log what we're deleting    
+                self.logger.log_info(f"Deleting folders: {[str(f) for f in folders_to_delete]}")
+                
+                # Delete each folder
+                for folder in folders_to_delete:
+                    if folder.exists():
+                        try:
+                            shutil.rmtree(folder)
+                            self.logger.log_info(f"Deleted folder: {folder}")
+                        except Exception as e:
+                            self.logger.log_error(f"Error deleting folder {folder}: {e}")
+                
+                # Delete text files in the output folder
+                for txt_file in ["volume_calculation.txt", "min_csa.txt"]:
+                    txt_path = self.output_folder / txt_file
+                    if txt_path.exists():
+                        try:
+                            txt_path.unlink()
+                            self.logger.log_info(f"Deleted file: {txt_path}")
+                        except Exception as e:
+                            self.logger.log_error(f"Error deleting file {txt_path}: {e}")
+                
+                # Delete NIfTI files in the output folder
+                for nifti_pattern in ["*_pred.nii.gz", "*prediction*.nii.gz", "*_seg.nii.gz"]:
+                    for file_path in self.output_folder.glob(nifti_pattern):
+                        try:
+                            file_path.unlink()
+                            self.logger.log_info(f"Deleted file: {file_path}")
+                        except Exception as e:
+                            self.logger.log_error(f"Error deleting file {file_path}: {e}")
+                
+                self.logger.log_info("File cleanup complete")
+        except Exception as e:
+            self.logger.log_error(f"Error during file cleanup: {e}")
         
         self.logger.log_info("Cancellation complete")
         return True

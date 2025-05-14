@@ -1,6 +1,7 @@
 import customtkinter as ctk
 from tkinter import ttk
 from gui.config.settings import UI_SETTINGS
+import tkinter.messagebox as messagebox
 
 class ProgressSection(ctk.CTkFrame):
     """A progress section with progress bar and output display"""
@@ -76,6 +77,18 @@ class ProgressSection(ctk.CTkFrame):
         
     def _handle_cancel(self):
         """Internal method to handle cancel button click"""
+        if self._cancel_callback_func and not self.cancellation_in_progress:
+            # Ask for confirmation first
+            user_confirmed = messagebox.askyesno(
+                "Confirm Cancellation",
+                "Are you sure you want to cancel the current operation?\n\n"
+                "All progress will be lost and you'll need to restart from the beginning.",
+                icon="warning"
+            )
+            
+            if not user_confirmed:
+                return  # User clicked No, abort cancellation
+            
         if self._cancel_callback_func and not self.cancellation_in_progress:
             # Disable the cancel button immediately to prevent multiple clicks
             self.cancel_button.configure(state="disabled")

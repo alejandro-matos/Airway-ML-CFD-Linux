@@ -703,7 +703,7 @@ class Tab4Manager:
             self.flow_rate_frame.pack_forget()
 
     def _validate_and_start_processing(self):
-        """Validate selection and start processing"""
+        """Validate selection and start processing, skipping segmentation if STL already exists"""
         if self.processing_active:
             return
 
@@ -711,12 +711,16 @@ class Tab4Manager:
             messagebox.showerror("Error", "Please select an analysis type before proceeding.")
             return
 
-        # Validate input files exist - now checking for either DICOM or NIfTI
+        # Validate input files exist - DICOM or NIfTI
         has_dicom = hasattr(self.app, 'selected_dicom_folder') and self.app.selected_dicom_folder
         has_nifti = hasattr(self.app, 'selected_files') and any(f.lower().endswith(('.nii', '.nii.gz')) 
                                                             for f in self.app.selected_files)
         
-        if not (has_dicom or has_nifti):
+        # Check if segmentation already exists (STL files in stl folder)
+        has_existing_segmentation = self._segmentation_results_exist()
+        
+        # Only validate inputs if we don't have existing segmentation results
+        if not has_existing_segmentation and not (has_dicom or has_nifti):
             messagebox.showerror("Error", "No input files specified. Please return to the patient information page and select DICOM or NIfTI files.")
             return
 
@@ -725,12 +729,12 @@ class Tab4Manager:
             messagebox.showerror("Error", "No output folder specified. Please return to the patient information page and try again.")
             return
 
-        # If “Segmentation only” and results already exist, offer to reuse
+        # If "Segmentation only" and results already exist, offer to reuse
         if self.analysis_option.get() == "Upper Airway Segmentation":
-            if self._segmentation_results_exist():
+            if has_existing_segmentation:
                 reuse = self._show_custom_dialog(
                     title="Existing Segmentation Found",
-                    message="You’ve already run segmentation here. Use existing results?",
+                    message="You've already run segmentation here. Use existing results?",
                     icon="question"
                 )
                 if reuse:
@@ -739,13 +743,14 @@ class Tab4Manager:
 
         # For airflow simulation, check if results already exist for this flow rate
         if "Simulation" in self.analysis_option.get():
+            if has_existing_segmentation:
+                # If we have segmentation but need to run CFD, inform the user we'll reuse segmentation
+                self.logger.log_info("Existing segmentation found, will skip to CFD simulation")
+            
             if self._cfd_results_exist():
                 # Results already exist - ask if user wants to use existing results
                 flow_str = f"{self.flow_rate.get():.1f}"
                 
-                # Create a simpler approach with tkinter.simpledialog
-                # Use a custom font for the parent window that will be inherited by the dialog
-                custom_font = ("Arial", 14)
                 response = self._show_custom_dialog(
                     title="Existing Results Found",
                     message=f"CFD results for flow rate {flow_str} LPM already exist. Would you like to use these existing results instead of running a new simulation?",
@@ -761,9 +766,12 @@ class Tab4Manager:
         analysis_type = self.analysis_option.get()
         message = f"Would you like to proceed with {analysis_type}?\n\n"
         
+        # Add skip segmentation info if segmentation results exist
+        segmentation_status = "Skip segmentation (using existing results)" if has_existing_segmentation else ("Use NIfTI data directly" if has_nifti else "Perform airway segmentation")
+        
         if "Simulation" in analysis_type:
             message += f"This will:\n" \
-                    f"1. {'Use NIfTI data directly' if has_nifti else 'Perform airway segmentation'}\n" \
+                    f"1. {segmentation_status}\n" \
                     f"2. Generate 3D model (in STL format)\n" \
                     f"3. Calculate airway volume in (mm³)\n" \
                     f"4. Generate 3D mesh\n" \
@@ -771,7 +779,7 @@ class Tab4Manager:
                     f"6. Provide pressure and velocity images of the 3D-scanned model"
         else:
             message += "This will:\n" \
-                    f"1. {'Use NIfTI data directly' if has_nifti else 'Perform airway segmentation'}\n" \
+                    f"1. {segmentation_status}\n" \
                     f"2. Generate 3D model (in STL format)\n" \
                     f"3. Calculate airway volume in (mm³)"
         
@@ -805,7 +813,8 @@ class Tab4Manager:
             # Set up the unified cancel handler for the progress section
             self.progress_section.set_cancel_callback(unified_cancel_handler)
             
-            self._start_processing()
+            # Start processing with knowledge of existing segmentation
+            self._start_processing(skip_segmentation=has_existing_segmentation)
 
     def _show_custom_dialog(self, title, message, icon="info"):
         """
@@ -887,9 +896,17 @@ class Tab4Manager:
         
         return result[0]
 
-    def _start_processing(self):
-        """Start the processing sequence for either DICOM or NIfTI input"""
+    def _start_processing(self, skip_segmentation=False):
+        """
+        Start the processing sequence for either DICOM or NIfTI input.
+        If skip_segmentation is True, will skip segmentation and go straight to CFD.
+        """
         try:
+            # If skipping segmentation, go straight to post-segmentation workflow
+            if skip_segmentation and "Simulation" in self.analysis_option.get():
+                self._handle_existing_segmentation_for_cfd()
+                return
+                
             # Determine if we're using DICOM or NIfTI files
             has_dicom = hasattr(self.app, 'selected_dicom_folder') and self.app.selected_dicom_folder
             has_nifti = hasattr(self.app, 'selected_files') and any(f.lower().endswith(('.nii', '.nii.gz')) 
@@ -1019,6 +1036,108 @@ class Tab4Manager:
             self.processing_active = False
             self.process_button.configure(state="normal")
             messagebox.showerror("Error", f"Failed to start processing:\n{str(e)}")
+
+    def _handle_existing_segmentation_for_cfd(self):
+        """Handle workflow when using existing segmentation for CFD simulation"""
+        try:
+            # Start the processing UI
+            self.processing_active = True
+            self.process_button.configure(state="disabled")
+            self.progress_section.start("Using existing segmentation for CFD...", indeterminate=True)
+            
+            # Activate results section
+            self._activate_results_section()
+            
+            # Refresh patient info
+            self._refresh_patient_info()
+            
+            # Find the STL file in the stl folder
+            stl_folder = Path(self.app.full_folder_path) / "stl"
+            stl_files = list(stl_folder.glob("*_geo.stl"))
+            if not stl_files:  # Try more general pattern if specific naming not found
+                stl_files = list(stl_folder.glob("*.stl"))
+                
+            if not stl_files:
+                raise FileNotFoundError("No STL files found in the stl folder.")
+                
+            stl_path = str(stl_files[0])
+            self.current_stl_path = stl_path
+            self.logger.log_info(f"Using existing STL: {stl_path}")
+            
+            # Get the preview image if it exists
+            preview_images = list(stl_folder.glob("*_geo.png"))
+            if not preview_images:
+                preview_images = list(stl_folder.glob("*.png"))  # Try more general pattern
+                
+            if preview_images:
+                self._update_render_display("segmentation", str(preview_images[0]))
+                self.logger.log_info(f"Using existing preview image: {preview_images[0]}")
+            
+            # Try to load the airway volume
+            volume_file = Path(self.app.full_folder_path) / "volume_calculation.txt"
+            if volume_file.exists():
+                with open(volume_file, 'r') as f:
+                    volume_str = f.read().strip()
+                    self.airway_volume = float(volume_str) if volume_str.replace('.', '', 1).isdigit() else volume_str
+                    self.logger.log_info(f"Loaded airway volume: {self.airway_volume}")
+            
+            # Look for min CSA
+            min_csa_path = Path(self.app.full_folder_path) / "min_csa.txt"
+            if min_csa_path.exists():
+                text = min_csa_path.read_text()
+                # find the first floating-point or integer in the text
+                m = re.search(r"[-+]?\d*\.?\d+", text)
+                if m:
+                    self.min_csa = float(m.group(0))
+                    self.logger.log_info(f"Loaded min CSA: {self.min_csa}")
+            
+            # Update progress
+            self.progress_section.update_progress(
+                30,
+                "Loaded existing segmentation, proceeding to CFD...",
+                "Using existing segmentation to proceed with CFD simulation"
+            )
+            
+            # Select segmentation tab to show loaded data
+            self._select_tab("Segmentation")
+            
+            # Proceed directly to Blender stage for CFD processing
+            self.update_progress("Creating inlet and outlet in Blender…", 50, "Creating inlet and outlet in Blender…")
+            
+            # Set up a CFD output directory based on flow rate
+            cfd_output_dir = str(self._get_full_cfd_path())
+            
+            # Prepare arguments for Blender
+            blender_args = {
+                "stl_path": self.current_stl_path,
+                "cfd_output_dir": cfd_output_dir
+            }
+            
+            # Reset cancellation flag before starting Blender
+            self.cancel_requested = False
+            
+            # Create & apply a proper cancellation handler
+            blender_cancel = self._create_unified_cancel_handler(processor=None)
+            self.progress_section.set_cancel_callback(blender_cancel)
+            self.progress_section.cancel_button.configure(state="normal")
+            
+            # Start the Blender process in a new thread
+            self.processing_thread = threading.Thread(
+                target=self._blender_worker,
+                args=(blender_args,),
+                daemon=True
+            )
+            self.processing_thread.start()
+            
+        except Exception as e:
+            error_msg = f"Error using existing segmentation: {str(e)}"
+            self.logger.log_error(error_msg)
+            messagebox.showerror("Error", error_msg)
+            
+            # Reset processing state
+            self.processing_active = False
+            self.progress_section.stop("Error in processing")
+            self.process_button.configure(state="normal")
 
     def _reset_processing_state(self):
         """Reset all processing state variables and update UI accordingly"""
@@ -1272,8 +1391,8 @@ class Tab4Manager:
         # Only proceed if not already cancelled
         if not self.cancel_requested:
             self.cancel_requested = True
-            self._cancellation_processed = True  # Add this line to set the flag immediately
-            self.logger.log_info("Cancellation requested")
+            self._cancellation_processed = True
+            self.logger.log_info("Cancellation requested by user")
             
             # Terminate the main process if it exists
             if hasattr(self, 'current_process') and self.current_process and self.current_process.poll() is None:
@@ -1289,11 +1408,17 @@ class Tab4Manager:
                     self.logger.log_error(f"Error terminating process: {e}")
             
             # Update progress section - Stop the progress bar immediately
-            self.progress_section.stop("Processing cancelled")  # Change this line
+            self.progress_section.stop("Processing cancelled")
             
-            # Reset processing state in a properly scheduled manner
-            # Add a short delay to allow the UI to update first
-            self.app.after(100, self._reset_processing_state)
+            # Add a log message here to verify execution flow
+            self.logger.log_info("About to call _delete_cancelled_files from _request_cancel")
+            
+            # Schedule file cleanup with a short delay so the UI can update
+            # Use a lambda to ensure direct method call
+            self.app.after(3000, lambda: self._delete_cancelled_files())
+            
+            # Reset processing state after cleanup is done
+            self.app.after(800, self._reset_processing_state)
     
     def _create_unified_cancel_handler(self, processor=None):
         """
@@ -1309,6 +1434,9 @@ class Tab4Manager:
             
             # Set the cancellation flag
             self.cancel_requested = True
+            
+            # Track cleanup information
+            cleanup_info = None
 
             # Processor-specific cancellation
             if processor is not None:
@@ -1316,17 +1444,31 @@ class Tab4Manager:
                     processor.cancel_event.set()
                 
                 if hasattr(processor, 'cancel_processing'):
-                    processor.cancel_processing()
+                    self.logger.log_info("Calling cancel_processing on processor")
+                    cleanup_info = processor.cancel_processing()
+                    
+                    # Log the returned info if any
+                    if cleanup_info:
+                        self.logger.log_info(f"Received cleanup info: {cleanup_info}")
             
             # Terminate any active subprocess
             if hasattr(self, 'current_process') and self.current_process and self.current_process.poll() is None:
                 self.logger.log_info("Terminating active subprocess...")
-                os.killpg(self.current_process.pid, signal.SIGTERM) #terminate
                 try:
-                    self.current_process.wait(timeout=5)
-                except subprocess.TimeoutExpired:
-                    self.logger.log_info("Subprocess didn't terminate, killing it...")
-                    os.killpg(self.current_process.pid, signal.SIGKILL) # fall back to sigkill the 
+                    os.killpg(self.current_process.pid, signal.SIGTERM)
+                    try:
+                        self.current_process.wait(timeout=5)
+                    except subprocess.TimeoutExpired:
+                        self.logger.log_info("Subprocess didn't terminate, killing it...")
+                        os.killpg(self.current_process.pid, signal.SIGKILL)
+                except Exception as e:
+                    self.logger.log_error(f"Error killing process group: {e}")
+                    # Fall back to regular termination
+                    try:
+                        self.current_process.terminate()
+                        self.current_process.wait(timeout=5)
+                    except:
+                        self.current_process.kill()
             
             # Also terminate Python subprocess if it exists
             if hasattr(self, 'current_subprocess') and self.current_subprocess and self.current_subprocess.poll() is None:
@@ -1349,7 +1491,10 @@ class Tab4Manager:
                     except:
                         pass
                     self.scheduled_updates = []
-                
+            
+            # Schedule file cleanup with direct folder information from the processor
+            self.app.after(500, lambda: self._delete_cancelled_files_with_info(cleanup_info))
+                    
             return True  # Return True to indicate successful cancellation request
         
         return unified_cancel_handler
@@ -1378,7 +1523,7 @@ class Tab4Manager:
 
     def _stream_subprocess_output(self, process, stage_name, base_progress):
         """
-        Stream subprocess output and update progress display
+        Stream subprocess output and update progress display, with cleaner output formatting
         
         Args:
             process: The subprocess.Popen object
@@ -1387,6 +1532,8 @@ class Tab4Manager:
         """
         # Regular expression to match percentage values (if present)
         percentage_pattern = re.compile(r'^\d+%')
+        # Pattern to extract the command name from OpenFOAM output lines
+        cmd_pattern = re.compile(r'Running (\w+)(?:\s+\([^)]*\))? on ')
         
         # Read output line by line while process is running
         while process.poll() is None:
@@ -1398,8 +1545,17 @@ class Tab4Manager:
             # Read a line (if available)
             output_line = process.stdout.readline().strip()
             if output_line:
-                # Log the output
+                # Log the full output for debugging
                 self.logger.log_info(f"{stage_name}: {output_line}")
+                
+                # Clean up OpenFOAM output lines for display
+                display_line = output_line
+                if "Running " in output_line and " on " in output_line:
+                    # Extract just the command name for cleaner display
+                    match = cmd_pattern.search(output_line)
+                    if match:
+                        command = match.group(1)
+                        display_line = f"Running {command}"
                 
                 # Handle progress indication in the output
                 if percentage_pattern.match(output_line):
@@ -1411,18 +1567,18 @@ class Tab4Manager:
                         
                         # Update the progress display
                         self.update_progress(
-                            f"{stage_name}: {output_line}",
+                            f"{stage_name}: {display_line}",
                             progress,
-                            output_line
+                            display_line
                         )
                     except (IndexError, ValueError):
                         pass  # Skip malformed percentage lines
                 else:
                     # For non-percentage lines, just display the output
                     self.update_progress(
-                        f"{stage_name}: {output_line}",
+                        f"{stage_name}: {display_line}",
                         base_progress,
-                        output_line
+                        display_line
                     )
 
         # Check for any remaining output after process completion
@@ -1431,11 +1587,19 @@ class Tab4Manager:
             for line in remaining_output.splitlines():
                 if line.strip(): 
                     self.logger.log_info(f"{stage_name}: {line.strip()}")
+                    # Clean up line for display
+                    display_line = line.strip()
+                    if "Running " in display_line and " on " in display_line:
+                        match = cmd_pattern.search(display_line)
+                        if match:
+                            command = match.group(1)
+                            display_line = f"Running {command}"
+                    
                     # Again check for percentage indications
                     if percentage_pattern.match(line.strip()):
-                        self.update_progress(f"{stage_name}: {line.strip()}", base_progress, line.strip())
+                        self.update_progress(f"{stage_name}: {display_line}", base_progress, display_line)
                     else:
-                        self.update_progress(f"{stage_name}: {line.strip()}", base_progress, line.strip())
+                        self.update_progress(f"{stage_name}: {display_line}", base_progress, display_line)
 
     # ====================================================================================================================
     # ================================= IMAGE DISPLAY METHODS ==================================================================
@@ -1918,16 +2082,12 @@ class Tab4Manager:
                     universal_newlines=True
                 )
                 
-                # Stream output while checking for cancellation
-                while self.current_process.poll() is None:
-                    if self.cancel_requested:
-                        self.current_process.terminate()
-                        return
-                        
-                    line = self.current_process.stdout.readline()
-                    if line:
-                        self.logger.log_info(f"{script}: {line.strip()}")
-                        self.app.after(0, lambda msg=line.strip(): self.update_progress(f"Running {script}: {msg}", 85, msg))
+                # Use the updated stream processing method to handle output
+                self._stream_subprocess_output(
+                    self.current_process, 
+                    f"CFD {script}", 
+                    85
+                )
                 
                 # Check if process failed
                 if self.current_process.returncode != 0:
@@ -2096,6 +2256,9 @@ class Tab4Manager:
             "Processing cancelled by user",  # Message
             "Cancellation complete - processing stopped"  # Output line
         ))
+
+        # Clean up files - wait a sec for processes to end
+        self.app.after(10000, self._delete_cancelled_files)
         
         # Reset the processing state through the "central" method
         self._reset_processing_state()
@@ -2110,7 +2273,14 @@ class Tab4Manager:
         # 1) Segmentation AND CFD done?
         stl_folder = Path(self.app.full_folder_path) / "stl"
         case_foam = os.path.join(cfd_path, "case.foam")
-        if os.path.exists(case_foam) and stl_folder.exists() and any(stl_folder.glob("*.stl")):
+        # 2) Check if time step 20 exists (indicating a completed simulation)
+        time_step = os.path.join(cfd_path, "20") #TODO: Change this to whatever step number in controlDict
+        
+        # All conditions must be met: case.foam exists, stl folder with files exists, and time step 20 exists
+        if (os.path.exists(case_foam) and 
+            stl_folder.exists() and 
+            any(stl_folder.glob("*.stl")) and
+            os.path.exists(time_step)):
             return True
 
         return False
@@ -2148,7 +2318,7 @@ class Tab4Manager:
                 time.sleep(2)
                 
                 # Check if simulation is complete - use same condition as GUI_ortho
-                if os.path.exists(os.path.join(dirs, "20", "U")):  
+                if os.path.exists(os.path.join(dirs, "20", "U")):  #TODO: Change this to whatever step number in controlDict
                     break
                     
                 # Also check for cancellation flag
@@ -2310,7 +2480,7 @@ class Tab4Manager:
             # If the images don't exist, run ParaView to generate them
             has_results   = os.path.exists(p_cut_1) and os.path.exists(v_cut_1)
             has_timesteps = any(
-                d.isdigit() and int(d) >= 20 and os.path.isdir(os.path.join(cfd_path, d))
+                d.isdigit() and int(d) >= 20 and os.path.isdir(os.path.join(cfd_path, d))  #TODO: change to number of steps in controlDict
                 for d in os.listdir(cfd_path)
             )
 
@@ -2325,31 +2495,6 @@ class Tab4Manager:
                         "Visualization Failed",
                         "Failed to generate CFD visualization images. Some visualizations may be missing."
                     )
-            
-            # # Now check for VTK files    #TODO: Remove this part
-            # vtk_folder = Path(cfd_path) / "VTK"
-            # if not vtk_folder.exists() or not any(vtk_folder.glob("*.vt*")):
-            #     # Run foamToVTK to create VTK files
-            #     try:
-            #         self.logger.log_info("Running foamToVTK...")
-            #         self.update_progress(
-            #             "Creating VTK files for interactive viewer...",
-            #             95,
-            #             "Creating VTK files for interactive viewer..."
-            #         )
-                    
-            #         os.makedirs(vtk_folder, exist_ok=True)
-            #         subprocess.run(["foamToVTK"], cwd=cfd_path, check=True)
-            #     except Exception as e:
-            #         self.logger.log_error(f"foamToVTK error: {str(e)}")
-            
-            # # Find the VTK file for the interactive slice viewer
-            # if vtk_folder.exists():
-            #     files = list(vtk_folder.glob("*.vtm")) or list(vtk_folder.glob("*.vtu"))
-            #     if files:
-            #         # Sort to get the latest timestep
-            #         self.vtk_file_path = str(sorted(files)[-1])
-            #         self.logger.log_info(f"Found VTK file for slice viewer: {self.vtk_file_path}")
             
             # Update the CFD visualization
             self._update_render_display("cfd", None)  # This will trigger the _update_cfd_display method
@@ -2989,3 +3134,129 @@ class Tab4Manager:
 
         # do the heavy work on a background thread
         threading.Thread(target=_do_copy, daemon=True).start()
+    
+    def _delete_cancelled_files(self):
+        """
+        Intelligently delete files based on what operation was cancelled.
+        Only deletes in-progress files, preserves completed results.
+        """
+        try:
+            if not hasattr(self.app, 'full_folder_path') or not self.app.full_folder_path:
+                print(self.app.full_folder_path)
+                self.logger.log_warning("No folder path to clean up")
+                return False
+                
+            # What was cancelled?
+            is_simulation = "Simulation" in self.analysis_option.get()
+            self.logger.log_info(f"Cleanup for {'simulation' if is_simulation else 'segmentation'}")
+            
+            if is_simulation:
+                # For simulation, just delete the specific CFD folder for this flow rate
+                cfd_path = self._get_full_cfd_path()
+                if os.path.exists(cfd_path):
+                    # Check if this is an incomplete simulation
+                    case_foam_exists = os.path.exists(os.path.join(cfd_path, "case.foam"))
+                    
+                    # Find the highest numbered time directory
+                    max_time_step = 0
+                    has_time_dirs = False
+                    
+                    for d in os.listdir(cfd_path):
+                        if d.isdigit() and os.path.isdir(os.path.join(cfd_path, d)):
+                            has_time_dirs = True
+                            step_num = int(d)
+                            if step_num > max_time_step:
+                                max_time_step = step_num
+                    
+                    # Consider simulation incomplete if:
+                    # 1. case.foam doesn't exist, OR
+                    # 2. time directories exist but highest step is < 20
+                    incomplete = not case_foam_exists or (has_time_dirs and max_time_step < 20) #TODO: Change to number of steps in controlDict
+                    
+                    # If it looks incomplete OR user confirms, delete it
+                    if incomplete or messagebox.askyesno(
+                        "Delete Cancelled Simulation Files?", 
+                        f"Delete the cancelled CFD simulation files for flow rate {self.flow_rate.get():.1f} LPM?\n\n"
+                        f"This will free up disk space but you'll need to re-run the simulation if needed later."
+                    ):
+                        self.logger.log_info(f"Deleting cancelled simulation folder: {cfd_path}")
+                        shutil.rmtree(cfd_path)
+                        self.logger.log_info(f"Successfully deleted simulation folder")
+                        return True
+                else:
+                    self.logger.log_info(f"CFD path not found: {cfd_path}")
+            else:
+                # For segmentation, check what folders actually exist first
+                self.logger.log_info(f"Checking segmentation folder: {self.app.full_folder_path}")
+                
+                # Get a list of all subdirectories that actually exist
+                existing_folders = []
+                possible_folders = ["nifti", "prediction", "stl"]
+                
+                for folder in possible_folders:
+                    folder_path = os.path.join(self.app.full_folder_path, folder)
+                    if os.path.exists(folder_path) and os.path.isdir(folder_path):
+                        existing_folders.append(folder)
+                        self.logger.log_info(f"Found existing folder: {folder}")
+                
+                # If some folders exist, ask if user wants to delete them
+                if existing_folders or any(f.endswith(".nii.gz") for f in os.listdir(self.app.full_folder_path)):
+                    if messagebox.askyesno(
+                        "Delete Cancelled Segmentation Files?", 
+                        f"Delete the in-progress segmentation files?\n\n"
+                        f"This will free up disk space but you'll need to re-run the segmentation if needed later."
+                    ):
+                        deleted_something = False
+                        
+                        # Delete existing folders
+                        for folder in existing_folders:
+                            folder_path = os.path.join(self.app.full_folder_path, folder)
+                            try:
+                                self.logger.log_info(f"Deleting folder: {folder_path}")
+                                shutil.rmtree(folder_path)
+                                deleted_something = True
+                            except Exception as e:
+                                self.logger.log_error(f"Error deleting {folder_path}: {e}")
+                                
+                        # Delete prediction NIfTI files
+                        nifti_patterns = ["*_pred.nii.gz", "*prediction*.nii.gz", "*_seg.nii.gz", "*.nii.gz"]
+                        for pattern in nifti_patterns:
+                            for file_path in Path(self.app.full_folder_path).glob(pattern):
+                                try:
+                                    self.logger.log_info(f"Deleting file: {file_path}")
+                                    file_path.unlink()
+                                    deleted_something = True
+                                except Exception as e:
+                                    self.logger.log_error(f"Error deleting {file_path}: {e}")
+                        
+                        # Delete specific txt files
+                        txt_files = ["volume_calculation.txt", "min_csa.txt"]
+                        for txt_file in txt_files:
+                            txt_path = os.path.join(self.app.full_folder_path, txt_file)
+                            if os.path.exists(txt_path):
+                                try:
+                                    self.logger.log_info(f"Deleting file: {txt_path}")
+                                    os.remove(txt_path)
+                                    deleted_something = True
+                                except Exception as e:
+                                    self.logger.log_error(f"Error deleting {txt_path}: {e}")
+                        
+                        if deleted_something:
+                            self.logger.log_info(f"Successfully cleaned up segmentation files")
+                            return True
+                        else:
+                            self.logger.log_info(f"No files were deleted")
+                            return False
+                    else:
+                        self.logger.log_info("User chose not to delete segmentation files")
+                        return False
+                else:
+                    self.logger.log_info("No segmentation files found to delete")
+                    return False
+                    
+            return False
+        except Exception as e:
+            self.logger.log_error(f"Error during file cleanup: {str(e)}")
+            import traceback
+            self.logger.log_error(traceback.format_exc())
+            return False

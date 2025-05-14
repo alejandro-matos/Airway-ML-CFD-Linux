@@ -35,12 +35,17 @@ from .tabs.tab4 import Tab4Manager
 from .components.navigation import NavigationFrame
 from .utils.image_processing import generate_slices
 from .config.settings import APP_SETTINGS, PATH_SETTINGS, UI_SETTINGS
+from gui.utils.basic_utils import AppLogger
+from datetime import datetime
 
 BASE_DIR = PATH_SETTINGS["BASE_DIR"]
 
 class OrthoCFDApp(ctk.CTk):
     def __init__(self):
         super().__init__()
+
+        # Add logger instance
+        self.logger = AppLogger()
         
         # Initialize the window
         self.setup_window()
@@ -194,6 +199,11 @@ class OrthoCFDApp(ctk.CTk):
     # =========== Navigation Methods ==========
     def go_home(self):
         """Return to home page and reset application state"""
+        # Add logging for home button click
+        self.logger.log_info("=" * 50)
+        self.logger.log_info(f"{APP_SETTINGS['TITLE']} Home button clicked - {datetime.now()}")
+        self.logger.log_info("=" * 50)
+            
         self.going_home = True
         self.clear_all_data()  # Reset all application data, including username_var
         self.clear_main_frame()  # Clear the GUI frame

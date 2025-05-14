@@ -1,1 +1,1 @@
-/home/cfduser/Desktop/CFD_GUI/User_Data/test/AnonymousPatient/test5/stl/P5T1_geo.stl
+/home/cfduser/Desktop/CFD_GUI/User_Data/test/AnonymousPatient/test3/stl/P5T1_geo.stl

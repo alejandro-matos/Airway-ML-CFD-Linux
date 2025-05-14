@@ -53,7 +53,7 @@ for v in active_object_verts:
 #p1t2 w_nozzle 1=0 , 2=-0.04
 #P5T1_TopCut 2 = -0.065
 bpy.context.object.rotation_euler[1] = 0
-bpy.context.object.rotation_euler[2] = -0.065
+bpy.context.object.rotation_euler[2] = 0
 
 # Removing artifacts and grab the bounds
 minx =  min(xValues)

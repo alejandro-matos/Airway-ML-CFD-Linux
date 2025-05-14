@@ -33,6 +33,8 @@ class AppLogger:
             self.logger.handlers.clear()
             
             self.logger.setLevel(logging.DEBUG)
+            # Suppress excessive PNG debug output from Pillow
+            logging.getLogger("PIL.PngImagePlugin").setLevel(logging.INFO)
 
             # Create formatters
             file_formatter = logging.Formatter(

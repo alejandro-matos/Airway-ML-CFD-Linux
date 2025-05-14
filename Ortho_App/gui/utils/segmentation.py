@@ -114,7 +114,7 @@ class AirwaySegmentator:
                     '-device', 'cuda',
                     '-f', 'all',
                     '-step_size', '0.7', # Increased from default 0.5
-                    '--disable_tta',  # Add this for faster inference if accuracy trade-off is acceptable
+                    '--disable_tta',  # TODO: Disable for 5x faster inference but segmentation is less accurate
                     '-npp', '8',  # Increase preprocessing threads (up from default 2)
                     '-nps', '8',  # Increase segmentation export threads (up from default 2)
                 ],
@@ -173,16 +173,23 @@ class AirwaySegmentator:
                 
     def cancel_processing(self):
         """Cancel the current processing if any subprocess is running"""
+        # Log that cancellation was requested
+        self.logger.log_info("Cancellation requested by user")
+        
         # tell Python loops to stop
         self.cancel_event.set()
 
         # kill any live subprocess
         if self.current_subprocess and self.current_subprocess.poll() is None:
+            self.logger.log_info("Terminating subprocess...")
             self.current_subprocess.terminate()
             try:
                 self.current_subprocess.wait(timeout=5)
             except subprocess.TimeoutExpired:
+                self.logger.log_info("Subprocess didn't terminate, killing it...")
                 self.current_subprocess.kill()
+        
+        self.logger.log_info("Cancellation complete")
         return True
 
     def convert_dicom_to_nifti(self):
@@ -379,9 +386,9 @@ class AirwaySegmentator:
             preview_path = self.generate_stl_preview(str(stl_path))
 
             # Minimum cross section computation
-            min_csa = self.approx_min_cross_section_area(clean_polydata, num_slices=50)
+            min_csa = self.approx_min_cross_section_area(clean_polydata, num_slices=50)  ## TODO: Change approx_min_cross_section_area function to the final version
             with open(self.output_folder/"min_csa.txt", "w") as f:
-                f.write(f"Min CSA (approx): {min_csa:.2f} units²\n")
+                f.write(f"Min CSA (approx): {min_csa:.2f} mm²\n")
 
             return {'stl_path': str(stl_path), 'preview_path': preview_path, 'min_csa': min_csa}
             

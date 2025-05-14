@@ -20,6 +20,8 @@ import tempfile
 import fitz  # PyMuPDF
 import getpass
 import glob
+import re
+import signal
 
 
 from ..components.navigation import NavigationFrame2
@@ -47,7 +49,7 @@ class Tab4Manager:
         self.render_images = {}  
         self.cancel_requested = False
         self.current_process = None
-        self.approx_min_csa = None
+        self.min_csa = None
 
         self.flow_rate = ctk.DoubleVar(value=10)
 
@@ -122,27 +124,31 @@ class Tab4Manager:
         if self._should_confirm_navigation():
             response = messagebox.askyesno(
                 "Confirm Navigation",
-                "An analysis is in process or has been completed. Going back will erase all data. Are you sure you want to proceed?"
+                "An analysis is in progress. Going back will erase all data. Proceed?"
             )
-            if response:
-                self.app.create_tab3()
-        else:
-            # No analysis in progress or completed, just go back without confirmation
-            self.app.create_tab3()
+            if not response:
+                return
+
+            # 1) invoke the same cancel logic as your Cancel buttont
+            if self.progress_section._cancel_callback_func:
+                self.progress_section._cancel_callback_func()
+
+            # 2) clear any lingering state (just in case)
+            self._reset_processing_state()
+
+        # now actually navigate back
+        self.app.create_tab3()
 
     def _confirm_home(self):
-        """Confirm going home if analysis data exists."""
-        # Check if analysis is in progress or results exist
         if self._should_confirm_navigation():
-            response = messagebox.askyesno(
-                "Confirm Navigation",
-                "An analysis is in process or has been completed. Going home will erase all data. Are you sure you want to proceed?"
-            )
-            if response:
-                self.app.go_home()
-        else:
-            # No analysis in progress or completed, just go home without confirmation
-            self.app.go_home()
+            if messagebox.askyesno("Confirm Navigation",
+                                   "Analysis in progress. Going Home will erase it. Proceed?"):
+                if self.progress_section._cancel_callback_func:
+                    self.progress_section._cancel_callback_func()
+                self._reset_processing_state()
+            else:
+                return
+        self.app.go_home()
 
     def _should_confirm_navigation(self):
         """Helper method to check if confirmation is needed before navigation."""
@@ -185,13 +191,11 @@ class Tab4Manager:
 
         instructions = [
             "1. Choose an analysis type:",
-            "   – Upper Airway Segmentation: generate airway prediction from DICOM/NIfTI.\n"
+            "   – Upper Airway Segmentation: generate airway prediction from \n\tDICOM/NIfTI.\n"
             "   – Airflow Simulation: segmentation plus airflow & pressure simulation.\n\tSelect flow rate by dragging slider or typing number in box.",
-            "2. Click 'Start Processing'.",
-            "3. Switch between the Segmentation, Post‑processed Geometry, and CFD Simulation \n\ttabs to see the results once completed.",
-            "4. Click on 3D render buttons to inspect the segmented \n\tand post-processed geometries more closely.",
-            "4. Click “Preview Report” to open a PDF preview of your results.",
-            "5. Click “Save Data” to export the results and PDF to your external drive."
+            "2. Click 'Start Processing'.\n3. Switch between the Segmentation, Post‑processed Geometry, \n\tand CFD Simulation tabs to see the results once completed.",
+            "4. Click on 3D render buttons to inspect predicted and post-processed \n\tgeometries more closely.",
+            "5. Click “Preview Report” to open a PDF preview of your results.\n6. Click “Save Data” to export results/report to external drive."
         ]
         for instr in instructions:
             ctk.CTkLabel(
@@ -779,6 +783,12 @@ class Tab4Manager:
         )
         
         if final_response:  # User clicked Yes
+            # Create a single unified cancel handler that will be maintained
+            self.unified_cancel_handler = self._create_unified_cancel_handler()
+            
+            # Set up the unified cancel handler for the progress section
+            self.progress_section.set_cancel_callback(self.unified_cancel_handler)
+            
             # Initialize render_images if it doesn't exist
             if not hasattr(self, 'render_images'):
                 self.render_images = {}
@@ -788,6 +798,12 @@ class Tab4Manager:
             
             # Initialize empty list for scheduled update IDs
             self.scheduled_updates = []
+
+            # Create a unified cancel handler
+            unified_cancel_handler = self._create_unified_cancel_handler()
+
+            # Set up the unified cancel handler for the progress section
+            self.progress_section.set_cancel_callback(unified_cancel_handler)
             
             self._start_processing()
 
@@ -892,6 +908,9 @@ class Tab4Manager:
             self.processing_active = True
             self.process_button.configure(state="disabled")
 
+            # Set the cancel callback to enable the dedicated cancel button
+            self.progress_section.set_cancel_callback(self._request_cancel)
+
             # immediately activate the Results area
             # (Tabs will show placeholders until each stage renders)
             self._activate_results_section()
@@ -925,28 +944,24 @@ class Tab4Manager:
             else:
                 raise ValueError("No valid input files found")
             
-            # Set up cancel callback
+            # Set up cancel callback with processor support
+            self.progress_section.set_cancel_callback(
+                self._create_unified_cancel_handler(processor=processor)
+            )
+
             def cancel_processing():
                 """Cancel the processing and stop the progress bar"""
                 self.cancel_requested = True
-                # notify segmentator
-                processor.cancel_event.set()
-                # kill subprocess too
-                processor.cancel_processing()
                 if processor.cancel_processing():
                     # Ensure the progress bar animation is stopped
                     self.app.after(0, lambda: self.progress_section.stop("Processing Cancelled"))
                     # Reset the processing flag
-                    self.processing_active = False
-                    # Enable the Start button again
-                    self.process_button.configure(state="normal")
-                    
-                    # Cancel any scheduled updates
-                    for after_id in self.scheduled_updates:
-                        self.app.after_cancel(after_id)
-                    self.scheduled_updates = []
-                    
+                    self.app.after(0, lambda: self._reset_processing_state())
+                    # Re-enable the Start button
+                    self.app.after(0, lambda: self.process_button.configure(state="normal"))
+                        
             self.progress_section.set_cancel_callback(cancel_processing)
+
             
             def process_thread():
                 try:
@@ -961,6 +976,10 @@ class Tab4Manager:
                     
                     # Run the processing - using the updated processor that handles both input types
                     results = processor.process()
+
+                    # Ensure cancel button is enabled by setting callback AFTER start
+                    self.app.after(100, lambda: self.progress_section.set_cancel_callback(self._request_cancel))
+        
                     
                     # Check if process was cancelled before proceeding
                     if self.cancel_requested:
@@ -973,10 +992,10 @@ class Tab4Manager:
                     self.app.after(0, lambda: self._handle_processing_completion(True, results))
 
                 except RuntimeError as e:
-                    # user hit Cancel inside segmentation → clean up UI
+                    # nnUNet is already stopped so just clean up the UI:
                     self.app.after(0, lambda: self.progress_section.stop("Processing cancelled"))
                     self.app.after(0, lambda: self.process_button.configure(state="normal"))
-                    self.app.after(0, lambda: self._reset_processing_state())
+                    self.app.after(0, self._reset_processing_state)
                     return
 
                 except Exception as exc:
@@ -1002,11 +1021,21 @@ class Tab4Manager:
             messagebox.showerror("Error", f"Failed to start processing:\n{str(e)}")
 
     def _reset_processing_state(self):
-        """Reset all processing state variables"""
+        """Reset all processing state variables and update UI accordingly"""
+        # Add a guard for concurrent resets
+        if hasattr(self, '_reset_in_progress') and self._reset_in_progress:
+            return
+            
+        self._reset_in_progress = True
+        
+        # Only call stop() if we haven't already done so
+        if not hasattr(self, '_cancellation_processed') or not self._cancellation_processed:
+            self.progress_section.stop("Processing Cancelled")
+            self._cancellation_processed = True
+        
         self.processing_active = False
         self.cancel_requested = False
-        self.current_subprocess = None
-        self.processing_thread = None
+        self.current_process = None
         
         # Clear any scheduled updates
         if hasattr(self, 'scheduled_updates'):
@@ -1016,6 +1045,19 @@ class Tab4Manager:
                 except:
                     pass
             self.scheduled_updates = []
+        
+        # Reset progress section callback
+        self.progress_section.set_cancel_callback(None)
+        
+        # Reset process button
+        self.process_button.configure(
+            text="Start Processing", 
+            state="normal", 
+            command=self._validate_and_start_processing
+        )
+        
+        # Clear the reset guard after a short delay
+        self.app.after(500, lambda: setattr(self, '_reset_in_progress', False))
     
     def _update_processing_stage(self, progress, message):
         """Update progress bar asynchronously with larger font for messages."""
@@ -1069,10 +1111,11 @@ class Tab4Manager:
         if "Simulation" in self.analysis_option.get():
             # Get paths based on selected flow rate
             cfd_base_path = self._get_full_cfd_path()
-            # Post-processed tab - look for any assembly image
-            assem = list(Path(cfd_base_path).glob("*_assem.png"))
+            # Post-processed tab - look for any assembly image in triSurface folder
+            tri_surface_path = Path(cfd_base_path) / "constant" / "triSurface"
+            assem = list(tri_surface_path.glob("*_assem.png"))
             if not assem:
-                assem = list(Path(cfd_base_path).glob("*assembly.png"))
+                assem = list(tri_surface_path.glob("*assembly.png"))
             postprocessed_path = str(assem[0]) if assem else None
             self._update_render_display("postprocessing", postprocessed_path)
             
@@ -1138,9 +1181,8 @@ class Tab4Manager:
             self.airway_volume = results['volume']
 
             # Store the airway min csa for use in reports
-            self.approx_min_csa = results['stl_path']['min_csa']
+            self.min_csa = results['stl_path']['min_csa']
 
-            
             # Show segmentation result immediately
             if 'preview_path' in results['stl_path'] and os.path.exists(results['stl_path']['preview_path']):
                 self._update_render_display("segmentation", results['stl_path']['preview_path'])
@@ -1164,7 +1206,15 @@ class Tab4Manager:
             if "Simulation" in self.analysis_option.get() and not self.cancel_requested:
                 # disable button so user can't re-click
                 self.process_button.configure(state="disabled")
-                self.update_progress("Segmentation complete. Starting post-processing…", 50)
+                self.progress_section.start(
+                    "Creating inlet and outlet in Blender…",
+                    indeterminate=True
+                )
+
+                # Cancel handler
+                blender_cancel = self._create_unified_cancel_handler(processor=None)
+                self.progress_section.set_cancel_callback(blender_cancel)
+                self.progress_section.cancel_button.configure(state="normal")
 
                 # launch Blender in a background thread
                 self.update_progress("Creating inlet and outlet in Blender…", 50, "Creating inlet and outlet in Blender…")
@@ -1172,8 +1222,11 @@ class Tab4Manager:
                     "stl_path": results['stl_path']['stl_path'],
                     "cfd_output_dir": str(self._get_full_cfd_path())
                 }
+
+                # Reset cancellation flag
                 self.cancel_requested = False
-                self.process_button.configure(state="disabled")
+                
+                # Start the Blender process
                 self.processing_thread = threading.Thread(
                     target=self._blender_worker,
                     args=(blender_args,),
@@ -1215,16 +1268,91 @@ class Tab4Manager:
         self._reset_processing_state()
     
     def _request_cancel(self):
-        self.cancel_requested = True
-        if self.current_process and self.current_process.poll() is None:
-            self.current_process.terminate()
-        self.update_progress("Cancellation requested", None)
+        """Centralized cancellation method that handles all running processes"""
+        # Only proceed if not already cancelled
+        if not self.cancel_requested:
+            self.cancel_requested = True
+            self._cancellation_processed = True  # Add this line to set the flag immediately
+            self.logger.log_info("Cancellation requested")
+            
+            # Terminate the main process if it exists
+            if hasattr(self, 'current_process') and self.current_process and self.current_process.poll() is None:
+                try:
+                    self.logger.log_info("Terminating current process")
+                    self.current_process.terminate()
+                    try:
+                        self.current_process.wait(timeout=5)
+                    except subprocess.TimeoutExpired:
+                        self.logger.log_info("Process did not terminate, killing it")
+                        self.current_process.kill()
+                except Exception as e:
+                    self.logger.log_error(f"Error terminating process: {e}")
+            
+            # Update progress section - Stop the progress bar immediately
+            self.progress_section.stop("Processing cancelled")  # Change this line
+            
+            # Reset processing state in a properly scheduled manner
+            # Add a short delay to allow the UI to update first
+            self.app.after(100, self._reset_processing_state)
     
-    def _reset_processing_state(self):
-        self.processing_active = False
-        self.cancel_requested = False
-        self.current_process = None
-        self.process_button.configure(text="Start Processing", command=self._validate_and_start_processing)
+    def _create_unified_cancel_handler(self, processor=None):
+        """
+        Creates a unified cancellation handler that can be used throughout the application.
+        Returns a callback function that can be assigned to the progress section.
+        """
+        def unified_cancel_handler():
+            """
+            Universal cancellation handler that terminates any active process
+            and resets the UI state appropriately.
+            """
+            self.logger.log_info("Cancellation requested by user")
+            
+            # Set the cancellation flag
+            self.cancel_requested = True
+
+            # Processor-specific cancellation
+            if processor is not None:
+                if hasattr(processor, 'cancel_event'):
+                    processor.cancel_event.set()
+                
+                if hasattr(processor, 'cancel_processing'):
+                    processor.cancel_processing()
+            
+            # Terminate any active subprocess
+            if hasattr(self, 'current_process') and self.current_process and self.current_process.poll() is None:
+                self.logger.log_info("Terminating active subprocess...")
+                os.killpg(self.current_process.pid, signal.SIGTERM) #terminate
+                try:
+                    self.current_process.wait(timeout=5)
+                except subprocess.TimeoutExpired:
+                    self.logger.log_info("Subprocess didn't terminate, killing it...")
+                    os.killpg(self.current_process.pid, signal.SIGKILL) # fall back to sigkill the 
+            
+            # Also terminate Python subprocess if it exists
+            if hasattr(self, 'current_subprocess') and self.current_subprocess and self.current_subprocess.poll() is None:
+                self.logger.log_info("Terminating Python subprocess...")
+                self.current_subprocess.terminate()
+                try:
+                    self.current_subprocess.wait(timeout=5)
+                except subprocess.TimeoutExpired:
+                    self.current_subprocess.kill()
+            
+            # Signal any Python loops to stop
+            if hasattr(self, 'cancel_event'):
+                self.cancel_event.set()
+            
+            # Cancel any scheduled updates
+            if hasattr(self, 'scheduled_updates'):
+                for after_id in self.scheduled_updates:
+                    try:
+                        self.app.after_cancel(after_id)
+                    except:
+                        pass
+                    self.scheduled_updates = []
+                
+            return True  # Return True to indicate successful cancellation request
+        
+        return unified_cancel_handler
 
     def update_progress(self, message, percentage, output_line=None):
         """Update the progress bar with a message and percentage"""
@@ -1258,7 +1386,6 @@ class Tab4Manager:
             base_progress: Base progress percentage for this stage
         """
         # Regular expression to match percentage values (if present)
-        import re
         percentage_pattern = re.compile(r'^\d+%')
         
         # Read output line by line while process is running
@@ -1313,9 +1440,6 @@ class Tab4Manager:
     # ====================================================================================================================
     # ================================= IMAGE DISPLAY METHODS ==================================================================
     # ====================================================================================================================
-
-    # Here's how to fix the image disappearing issue in the Tab4Manager class.
-    # Focus on these changes to the _update_render_display method:
 
     def _update_render_display(self, stage, image_path, placeholder=False):
         """Update the display with proper button sizing and handle tab selection."""
@@ -1485,6 +1609,9 @@ class Tab4Manager:
 
     def _blender_worker(self, args):
         try:
+            # Enable cancel button before starting Blender
+            self.app.after(0, lambda: self.progress_section.set_cancel_callback(self._request_cancel))
+            
             # Create required directories before running Blender
             trisurf_dir = os.path.join(args["cfd_output_dir"], "constant", "triSurface")
             os.makedirs(trisurf_dir, exist_ok=True)
@@ -1507,40 +1634,49 @@ class Tab4Manager:
 
             blender_dir = project_root / "blender_ortho.py"
             
-            proc = subprocess.Popen(
+            # Store the process reference in self.current_process
+            self.current_process = subprocess.Popen(
                 ["blender", "--background", "--python", blender_dir],
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL
+                stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                universal_newlines=True
             )
-            self.current_process = proc
-
-            # simply wait for it to finish, without logging any of its output
-            code = proc.wait()
-            if code != 0:
-                # report an error
-                self.app.after(0, lambda: self._on_worker_error(
-                    "Blender",
-                    f"Blender exited with code {code}"
-                ))
-                return
-
-            # schedule the file‑check helper once Blender finished successfully
-            self.app.after(
-                0,
-                lambda: self._check_blender_files(code, None, None, args)
-            )
-
-
+            
+            # Process output in real-time
+            while self.current_process.poll() is None:
+                # Check if cancellation was requested
+                if self.cancel_requested:
+                    self.current_process.terminate()
+                    self.app.after(0, lambda: self.progress_section.stop("Processing cancelled"))
+                    self.app.after(0, self._on_sim_cancelled)
+                    return
+                    
+                line = self.current_process.stdout.readline()
+                if line:
+                    self.logger.log_info(f"Blender: {line.strip()}")
+            
+            stdout, stderr = self.current_process.communicate()
+            code = self.current_process.returncode
+            
+            # Only proceed if not cancelled
+            if not self.cancel_requested:
+                self.app.after(0, lambda: self._on_blender_done(code, stdout, stderr, args))
         except Exception as e:
             self.logger.log_error(f"Blender worker error: {e}")
             # capture `e` as a default so it's available when the lambda runs
             self.app.after(0, lambda e=e: self._on_worker_error("Blender", e))
 
+
     def _check_blender_files(self, returncode, stdout, stderr, args):
         """Check if necessary files exist before proceeding"""
+        # Check if process was cancelled
+        if self.cancel_requested or self.progress_section.is_cancellation_in_progress():
+            self.app.after(0, lambda: self.progress_section.stop("Processing cancelled"))
+            self.app.after(0, lambda: self._reset_processing_state())
+            return
+            
         if returncode != 0:
-            messagebox.showerror("Blender Error", stderr)
-            self.process_button.configure(state="normal")
+            messagebox.showerror("Blender Error", stderr if stderr else "Unknown error occurred")
+            self.app.after(0, lambda: self._reset_processing_state())
             return
             
         # Check if required STL files exist
@@ -1553,15 +1689,33 @@ class Tab4Manager:
         files_exist = os.path.exists(inlet_path) and os.path.exists(outlet_path) and os.path.exists(wall_path)
         
         if not files_exist:
+            # Check if cancelled before scheduling another check
+            if self.cancel_requested or self.progress_section.is_cancellation_in_progress():
+                self.app.after(0, lambda: self.progress_section.stop("Processing cancelled"))
+                self.app.after(0, lambda: self._reset_processing_state())
+                return
+                
             # Files don't exist yet, wait a bit longer before checking again (500ms)
             self.logger.log_info("STL files not ready yet, checking again in 500ms")
             self.app.after(500, lambda: self._check_blender_files(returncode, stdout, stderr, args))
             return
         
+        # Check if cancelled before proceeding to rendering
+        if self.cancel_requested or self.progress_section.is_cancellation_in_progress():
+            self.app.after(0, lambda: self.progress_section.stop("Processing cancelled"))
+            self.app.after(0, lambda: self._reset_processing_state())
+            return
+            
         self.logger.log_info("All STL files found, proceeding to render assembly image")
         
         # Now that files exist, proceed with rendering assembly
         preview = self._render_assembly_image(inlet_path, outlet_path, wall_path, args["cfd_output_dir"])
+        
+        # Check cancellation again after rendering
+        if self.cancel_requested or self.progress_section.is_cancellation_in_progress():
+            self.app.after(0, lambda: self.progress_section.stop("Processing cancelled"))
+            self.app.after(0, lambda: self._reset_processing_state())
+            return
         
         if preview and os.path.exists(preview):
             self.logger.log_info(f"Assembly image created: {preview}")
@@ -1569,6 +1723,12 @@ class Tab4Manager:
             self._update_render_display("postprocessing", preview)
             self._select_tab("Post-processed Geometry")
             
+            # Check if cancelled before proceeding to CFD
+            if self.cancel_requested or self.progress_section.is_cancellation_in_progress():
+                self.app.after(0, lambda: self.progress_section.stop("Processing cancelled"))
+                self.app.after(0, lambda: self._reset_processing_state())
+                return
+                
             # Now proceed to CFD simulation
             self.logger.log_info("Starting CFD simulation...")
             self.cancel_requested = False
@@ -1578,7 +1738,11 @@ class Tab4Manager:
                 75,
                 "Running CFD simulation…"
             )
-            self.process_button.configure(text="Cancel", state="normal", command=self._request_cancel)
+            
+            # Cancellation for CFD
+            self.progress_section.set_cancel_callback(
+                self._create_unified_cancel_handler()
+            )
             
             threading.Thread(
                 target=self._cfd_worker,
@@ -1588,43 +1752,70 @@ class Tab4Manager:
         else:
             self.logger.log_error("Failed to generate assembly image")
             messagebox.showerror("Error", "Failed to generate geometry preview image")
-            self.process_button.configure(state="normal")
-
+            self.app.after(0, lambda: self._reset_processing_state())
+    
     def _on_blender_done(self, returncode, stdout, stderr, args):
+        """Handle completion of Blender processing and start CFD simulation"""
+        # Check if cancellation was requested during Blender processing
+        if self.cancel_requested:
+            self.logger.log_info("Blender processing was cancelled, not proceeding to CFD")
+            return
+            
+        # Handle Blender errors
         if returncode != 0:
             messagebox.showerror("Blender Error", stderr)
             self.process_button.configure(state="normal")
+            self._reset_processing_state()
             return
-
-        # 1. Render the preview image
-        preview = self._render_assembly_image(
-            os.path.join(args["cfd_output_dir"], "constant", "triSurface", "inlet.stl"),
-            os.path.join(args["cfd_output_dir"], "constant", "triSurface", "outlet.stl"),
-            os.path.join(args["cfd_output_dir"], "constant", "triSurface", "wall.stl"),
-            args["cfd_output_dir"]
-        )
-
-        # 2. Show it on the "Post-processed Geometry" tab
-        self._update_render_display("postprocessing", preview)
-        
-        # Now that Blender processing is done, we can enable the Post-processed tab
-        self._select_tab("Post-processed Geometry")
-
-        # 3. Now kick off the CFD thread immediately (no extra user click)
-        self.cancel_requested = False
-        self.processing_active = True
-        self.update_progress(
-                "Running CFD simulation…",
-                77,
-                "Running CFD simulation…"
+            
+        try:
+            # 1. Render the preview image
+            preview = self._render_assembly_image(
+                os.path.join(args["cfd_output_dir"], "constant", "triSurface", "inlet.stl"),
+                os.path.join(args["cfd_output_dir"], "constant", "triSurface", "outlet.stl"),
+                os.path.join(args["cfd_output_dir"], "constant", "triSurface", "wall.stl"),
+                args["cfd_output_dir"]
             )
-        self.process_button.configure(text="Cancel", state="normal", command=self._request_cancel)
+            
+            # Check again for cancellation after rendering
+            if self.cancel_requested:
+                self.logger.log_info("Process cancelled after Blender assembly rendering")
+                return
+                
+            # 2. Show it on the "Post-processed Geometry" tab
+            self._update_render_display("postprocessing", preview)
+            
+            # Now that Blender processing is done, we can enable the Post-processed tab
+            self._select_tab("Post-processed Geometry")
+            
+            # 3. Now kick off the CFD thread immediately (no extra user click)
+            # Reset cancellation flag before starting new process
+            self.cancel_requested = False
+            self.processing_active = True
+            
+            # Update progress for user feedback
+            self.update_progress("Running CFD simulation…", 85)
 
-        threading.Thread(
-            target=self._cfd_worker,
-            args=(args["cfd_output_dir"],),
-            daemon=True
-        ).start()
+            # Make sure the progress section's cancel button is enabled
+            self.progress_section.set_cancel_callback(self._request_cancel)
+
+            # Start CFD processing in a separate thread
+            cfd_thread = threading.Thread(
+                target=self._cfd_worker,
+                args=(args["cfd_output_dir"],),
+                daemon=True
+            )
+            cfd_thread.start()
+            
+        except Exception as e:
+            # Handle any exceptions during this transition phase
+            error_message = f"Error after Blender processing: {str(e)}"
+            self.logger.log_error(error_message)
+            messagebox.showerror("Error", error_message)
+            
+            # Reset processing state
+            self._reset_processing_state()
+
 
     # ====================================================================================================================
     # ================================= SIMULATION RELATED METHODS =======================================================
@@ -1657,6 +1848,12 @@ class Tab4Manager:
 
     def _cfd_worker(self, cfd_dir):
         try:
+            # Reset the cancellation processed flag at the start
+            self._cancellation_processed = False
+
+            # Make sure cancel button is properly enabled
+            self.app.after(0, lambda: self.progress_section.set_cancel_callback(self._request_cancel))
+            
             dirs = str(cfd_dir)
 
             # 1. Write flow rate to pvfr.txt
@@ -1666,15 +1863,13 @@ class Tab4Manager:
                 f.write(f"vfr {self.flow_rate.get():.1f};\n#inputMode merge")
 
             # 2. Combine STL files
-            self.update_progress(
-                "Combining STL parts…",
-                65,
-                "Combining STL parts…"
-            )
             surf_dir = os.path.join(dirs, "constant", "triSurface")
-            subprocess.run("cat *.stl >> combined.stl", cwd=surf_dir, shell=True, check=True)
             if not os.path.isdir(surf_dir):
                 raise FileNotFoundError(f"triSurface directory not found: {surf_dir}")
+
+            # Check for cancellation after each major step
+            if self.cancel_requested:
+                return
 
             # remove old combined.stl
             subprocess.run(["rm", "-f", "combined.stl"], cwd=surf_dir, check=True)
@@ -1684,12 +1879,19 @@ class Tab4Manager:
             if not os.path.exists(os.path.join(surf_dir, "combined.stl")):
                 raise FileNotFoundError("Failed to create combined.stl")
 
-            # 3. Kick off residual monitoring in background
-            t_mon = threading.Thread(target=self._monitor_residuals, args=(dirs,), daemon=True)
-            t_mon.start()
+            # Check for cancellation again
+            if self.cancel_requested:
+                return
+
+            # 3. Kick off residual monitoring in background with daemon=True
+            self.residual_monitor_thread = threading.Thread(
+                target=self._monitor_residuals, 
+                args=(dirs,), 
+                daemon=True  # Ensure this is a daemon thread so it exits when the main thread exits
+            )
+            self.residual_monitor_thread.start()
 
             # 4. Ensure Allclean/Allrun exist and are executable
-            self.update_progress("Starting CFD…", 77)
             for script in ("Allclean", "Allrun"):
                 path = os.path.join(dirs, script)
                 if not os.path.isfile(path):
@@ -1698,37 +1900,69 @@ class Tab4Manager:
                     os.chmod(path, 0o755)
                     self.logger.log_info(f"Made {script} executable")
 
-            # 5. Run Allclean then Allrun, inheriting stdout/stderr
-            self.update_progress(
-                "Running CFD simulation…",
-                78,
-                "Running CFD simulation…"
-            )
-            for script in ("Allclean", "Allrun"):
-                self.logger.log_info(f"Running {script} in {dirs}")
-                subprocess.run([f"./{script}"], cwd=dirs, check=True)
+            # Check for cancellation again
+            if self.cancel_requested:
+                return
 
-            # 6. All done—back to main thread
-            self.update_progress(
-                "CFD simulation finished, processing results…",
-                85,
-                "CFD simulation finished, processing results…"
-            )
-            self.app.after(0, lambda: self._on_sim_done(cfd_dir))
+            # 5. Run Allclean then Allrun, storing the process reference
+            for script in ("Allclean", "Allrun"):
+                if self.cancel_requested:
+                    return
+                    
+                self.logger.log_info(f"Running {script} in {dirs}")
+                self.current_process = subprocess.Popen(
+                    [f"./{script}"], 
+                    cwd=dirs, 
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    universal_newlines=True
+                )
+                
+                # Stream output while checking for cancellation
+                while self.current_process.poll() is None:
+                    if self.cancel_requested:
+                        self.current_process.terminate()
+                        return
+                        
+                    line = self.current_process.stdout.readline()
+                    if line:
+                        self.logger.log_info(f"{script}: {line.strip()}")
+                        self.app.after(0, lambda msg=line.strip(): self.update_progress(f"Running {script}: {msg}", 85, msg))
+                
+                # Check if process failed
+                if self.current_process.returncode != 0:
+                    stderr = self.current_process.stderr.read()
+                    raise subprocess.CalledProcessError(
+                        self.current_process.returncode,
+                        script,
+                        output=None,
+                        stderr=stderr
+                    )
+
+            # 6. All done—back to main thread if not cancelled
+            if not self.cancel_requested:
+                self.app.after(0, lambda: self._on_sim_done(cfd_dir))
+            else:
+                self.app.after(0, self._on_sim_cancelled)
 
         except subprocess.CalledProcessError as e:
-            msg = (
-                f"{e.cmd!r} failed (code {e.returncode}).\n"
-                f"Output: {e.output or 'n/a'}\n"
-                f"Error: {e.stderr or 'n/a'}"
-            )
-            self.logger.log_error(msg)
-            self.app.after(0, lambda: self._on_worker_error("Simulation", msg))
+            # Only handle errors if not cancelled (since cancellation will cause errors)
+            if not self.cancel_requested:
+                msg = (
+                    f"{e.cmd!r} failed (code {e.returncode}).\n"
+                    f"Output: {e.output or 'n/a'}\n"
+                    f"Error: {e.stderr or 'n/a'}"
+                )
+                self.logger.log_error(msg)
+                self.app.after(0, lambda: self._on_worker_error("Simulation", msg))
 
         except Exception as e:
-            msg = f"{type(e).__name__}: {e}"
-            self.logger.log_error(msg)
-            self.app.after(0, lambda: self._on_worker_error("Simulation", msg))
+            # Only handle errors if not cancelled
+            if not self.cancel_requested:
+                msg = f"{type(e).__name__}: {e}"
+                self.logger.log_error(msg)
+                self.app.after(0, lambda: self._on_worker_error("Simulation", msg))
+
     
     def _on_sim_done(self, cfd_dir):
         """Process and visualize CFD results after simulation completes."""
@@ -1744,28 +1978,6 @@ class Tab4Manager:
             
             if not success:
                 messagebox.showwarning("Warning", "ParaView post-processing failed, some images may be missing.")
-            
-            # Store the VTK file path for the interactive slice viewer
-            vtk_folder = Path(cfd_dir) / "VTK"
-            if vtk_folder.exists():
-                files = [f for f in os.listdir(vtk_folder) if f.endswith(".vtm") or f.endswith(".vtu")]
-                if files:
-                    # Sort to get the latest timestep
-                    self.vtk_file_path = os.path.join(vtk_folder, sorted(files)[-1])
-                    self.logger.log_info(f"Found VTK file for slice viewer: {self.vtk_file_path}")
-            else:
-                # Create VTK folder if needed and run foamToVTK
-                os.makedirs(vtk_folder, exist_ok=True)
-                try:
-                    self.logger.log_info("Running foamToVTK...")
-                    subprocess.run(["foamToVTK"], cwd=cfd_dir, check=True)
-                    
-                    # Now check for VTK files again
-                    files = [f for f in os.listdir(vtk_folder) if f.endswith(".vtm") or f.endswith(".vtu")]
-                    if files:
-                        self.vtk_file_path = os.path.join(vtk_folder, sorted(files)[-1])
-                except Exception as e:
-                    self.logger.log_error(f"foamToVTK error: {str(e)}")
             
             # Update the CFD tab display with newly generated images
             pressure_images = list(Path(cfd_dir).glob("p_cut_1.png"))
@@ -1784,7 +1996,7 @@ class Tab4Manager:
             self.preview_button.configure(state="normal")
             self.export_button.configure(state="normal")
 
-            self.prune_cfd_folder(cfd_dir) # Comment out if not wanting to remove log files and other supplemental files
+            # self.prune_cfd_folder(cfd_dir) # Comment out if not wanting to remove log files and other supplemental files # TODO: Uncomment this
             
         except Exception as e:
             error_msg = f"Error in post-processing: {str(e)}"
@@ -1806,6 +2018,7 @@ class Tab4Manager:
             
             # 2. Run the paraview script
             self.logger.log_info("Running ParaView script")
+            self.update_progress("Generating visualization images...", 95)
             
             # Use absolute path for the script to avoid any path issues
             main_dir = os.path.dirname(os.path.abspath(sys.argv[0]))
@@ -1867,7 +2080,24 @@ class Tab4Manager:
                 print(f"Cropped whitespace from {os.path.basename(fname)}")
 
     def _on_sim_cancelled(self):
-        messagebox.showinfo("Cancelled", "Simulation stopped by user")
+        """Handle cancellation completion cleanly"""
+        # Avoid duplicate processing
+        if hasattr(self, '_cancellation_processed') and self._cancellation_processed:
+            return
+            
+        self._cancellation_processed = True
+        
+        # Log the cancellation
+        self.logger.log_info("Simulation cancelled by user")
+
+        # Update progress section with cancellation message
+        self.app.after(0, lambda: self.progress_section.update_progress(
+            None,  # No percentage change
+            "Processing cancelled by user",  # Message
+            "Cancellation complete - processing stopped"  # Output line
+        ))
+        
+        # Reset the processing state through the "central" method
         self._reset_processing_state()
 
     def _cfd_results_exist(self, flow_rate=None):
@@ -1877,14 +2107,10 @@ class Tab4Manager:
         """
         cfd_path = self._get_full_cfd_path(flow_rate)
 
-        # 1) CFD done?
-        case_foam = os.path.join(cfd_path, "case.foam")
-        if os.path.exists(case_foam):
-            return True
-
-        # 2) Segmentation done?
+        # 1) Segmentation AND CFD done?
         stl_folder = Path(self.app.full_folder_path) / "stl"
-        if stl_folder.exists() and any(stl_folder.glob("*.stl")):
+        case_foam = os.path.join(cfd_path, "case.foam")
+        if os.path.exists(case_foam) and stl_folder.exists() and any(stl_folder.glob("*.stl")):
             return True
 
         return False
@@ -1898,15 +2124,21 @@ class Tab4Manager:
             self.logger.log_warning(f"Gnuplot directory not found at {gnuplot_dir}")
             return
             
+        # Keep checking while the simulation is running and not cancelled
         while not self.cancel_requested:
             try:
                 # Run the gnuplot script if it exists (same as GUI_ortho approach)
                 if os.path.exists(os.path.join(gnuplot_dir, "gnuplot_residuals")):
-                    subprocess.run(
-                        ['/bin/bash', '-c', "bash ./gnuplot_residuals"], 
-                        cwd=gnuplot_dir, 
-                        check=False
-                    )
+                    # Only run if log file exists to prevent errors
+                    log_file = os.path.join(gnuplot_dir, "log.simpleFoam")
+                    if os.path.exists(log_file) and os.path.getsize(log_file) > 0:
+                        subprocess.run(
+                            ['/bin/bash', '-c', "bash ./gnuplot_residuals"], 
+                            cwd=gnuplot_dir, 
+                            check=False,
+                            stdout=subprocess.DEVNULL,  # Suppress stdout
+                            stderr=subprocess.DEVNULL   # Suppress stderr
+                        )
                 
                 # Check if the plot was generated
                 if os.path.exists(os.path.join(gnuplot_dir, "residual_plot.png")):
@@ -1918,9 +2150,19 @@ class Tab4Manager:
                 # Check if simulation is complete - use same condition as GUI_ortho
                 if os.path.exists(os.path.join(dirs, "20", "U")):  
                     break
+                    
+                # Also check for cancellation flag
+                if self.cancel_requested:
+                    self.logger.log_info("Residual monitoring cancelled")
+                    break
+                    
             except Exception as e:
                 self.logger.log_error(f"Error monitoring residuals: {str(e)}")
                 time.sleep(10)
+                
+                # Check for cancellation after error
+                if self.cancel_requested:
+                    break
 
     def _load_existing_cfd(self):
         """Load existing CFD results for the current flow rate."""
@@ -2013,15 +2255,19 @@ class Tab4Manager:
             main_out = Path(self.app.full_folder_path)
             min_csa_path = main_out / "min_csa.txt"
             if min_csa_path.exists():
-                try:
-                    self.approx_min_csa = float(min_csa_path.read_text().strip())
-                    self.logger.log_info(f"Loaded min CSA from {min_csa_path}: {self.approx_min_csa}")
-                except ValueError:
-                    self.approx_min_csa = None
-                    self.logger.log_warning(f"Could not parse min_csa.txt at {min_csa_path}")
+                text = min_csa_path.read_text()
+                # find the first floating‑point or integer in the text
+                m = re.search(r"[-+]?\d*\.?\d+", text)
+                if m:
+                    self.min_csa = float(m.group(0))
+                    self.logger.log_info(f"Loaded min CSA from {min_csa_path}: {self.min_csa}")
+                else:
+                    self.min_csa = None
+                    self.logger.log_warning(f"No numeric value found in {min_csa_path}")
             else:
-                self.approx_min_csa = None
+                self.min_csa = None
                 self.logger.log_warning(f"min_csa.txt not found at {min_csa_path}")
+
             
             # Load post-processed geometry
             self.update_progress(
@@ -2062,15 +2308,15 @@ class Tab4Manager:
             v_cut_1 = os.path.join(cfd_path, "v_cut_1.png")
             
             # If the images don't exist, run ParaView to generate them
-            if not (os.path.exists(p_cut_1) and os.path.exists(v_cut_1)):
-                self.logger.log_info("CFD visualization images not found. Running ParaView...")
-                self.update_progress("Generating visualization images...", 85)
-                self.update_progress(
-                    "Generating visualization images...",
-                    92,
-                    "Generating visualization images..."
-                )
-                
+            has_results   = os.path.exists(p_cut_1) and os.path.exists(v_cut_1)
+            has_timesteps = any(
+                d.isdigit() and int(d) >= 20 and os.path.isdir(os.path.join(cfd_path, d))
+                for d in os.listdir(cfd_path)
+            )
+
+            if not has_results and has_timesteps:
+                self.logger.log_info("Sim appears done (found time‑step dirs), generating cut‑planes now")
+                success = self._run_paraview(cfd_path)
                 # Run ParaView script to generate images
                 success = self._run_paraview(cfd_path)
                 if not success:
@@ -2080,30 +2326,30 @@ class Tab4Manager:
                         "Failed to generate CFD visualization images. Some visualizations may be missing."
                     )
             
-            # Now check for VTK files
-            vtk_folder = Path(cfd_path) / "VTK"
-            if not vtk_folder.exists() or not any(vtk_folder.glob("*.vt*")):
-                # Run foamToVTK to create VTK files
-                try:
-                    self.logger.log_info("Running foamToVTK...")
-                    self.update_progress(
-                        "Creating VTK files for interactive viewer...",
-                        95,
-                        "Creating VTK files for interactive viewer..."
-                    )
+            # # Now check for VTK files    #TODO: Remove this part
+            # vtk_folder = Path(cfd_path) / "VTK"
+            # if not vtk_folder.exists() or not any(vtk_folder.glob("*.vt*")):
+            #     # Run foamToVTK to create VTK files
+            #     try:
+            #         self.logger.log_info("Running foamToVTK...")
+            #         self.update_progress(
+            #             "Creating VTK files for interactive viewer...",
+            #             95,
+            #             "Creating VTK files for interactive viewer..."
+            #         )
                     
-                    os.makedirs(vtk_folder, exist_ok=True)
-                    subprocess.run(["foamToVTK"], cwd=cfd_path, check=True)
-                except Exception as e:
-                    self.logger.log_error(f"foamToVTK error: {str(e)}")
+            #         os.makedirs(vtk_folder, exist_ok=True)
+            #         subprocess.run(["foamToVTK"], cwd=cfd_path, check=True)
+            #     except Exception as e:
+            #         self.logger.log_error(f"foamToVTK error: {str(e)}")
             
-            # Find the VTK file for the interactive slice viewer
-            if vtk_folder.exists():
-                files = list(vtk_folder.glob("*.vtm")) or list(vtk_folder.glob("*.vtu"))
-                if files:
-                    # Sort to get the latest timestep
-                    self.vtk_file_path = str(sorted(files)[-1])
-                    self.logger.log_info(f"Found VTK file for slice viewer: {self.vtk_file_path}")
+            # # Find the VTK file for the interactive slice viewer
+            # if vtk_folder.exists():
+            #     files = list(vtk_folder.glob("*.vtm")) or list(vtk_folder.glob("*.vtu"))
+            #     if files:
+            #         # Sort to get the latest timestep
+            #         self.vtk_file_path = str(sorted(files)[-1])
+            #         self.logger.log_info(f"Found VTK file for slice viewer: {self.vtk_file_path}")
             
             # Update the CFD visualization
             self._update_render_display("cfd", None)  # This will trigger the _update_cfd_display method
@@ -2136,7 +2382,7 @@ class Tab4Manager:
         ctk.CTkLabel(
             container,
             text=title,
-            font=("Arial", 14, "bold"),
+            font=("Arial", 16, "bold"),
             text_color=UI_SETTINGS["COLORS"]["TEXT_DARK"]
         ).pack(pady=(0, 5))
         
@@ -2263,16 +2509,15 @@ class Tab4Manager:
         ctk.CTkLabel(
             parent_container,
             text="CFD simulation results showing pressure and velocity distributions",
-            font=("Arial", 14),
+            font=("Arial", 16),
             text_color=UI_SETTINGS["COLORS"]["TEXT_DARK"]
         ).pack(pady=(5, 0))
     
 
-    def prune_cfd_folder(self, cfd_dir):
+    def prune_cfd_folder(self, cfd_dir): #TODO: Re-check this to see which files to remove
         """
         Remove all OpenFOAM “scratch” folders so you only keep:
         - case.foam
-        - VTK/
         - *_CFD.png
         - constant/triSurface/
         """
@@ -2303,7 +2548,7 @@ class Tab4Manager:
         for log in p.glob("log.*"):
             log.unlink()
 
-        print(f"Pruned CFD folder; only case.foam, VTK/, *_CFD.png, and triSurface remain in {cfd_dir}")
+        print(f"Pruned CFD folder; only case.foam, *_CFD.png, and triSurface remain in {cfd_dir}")
 
     # ==========================================================
     ###### IMAGE RENDER AND INTERACTIVE 3D MODEL METHODS #######
@@ -2486,49 +2731,64 @@ class Tab4Manager:
         Returns a dict with:
           - cfd_dir                     : str
           - postprocessed_image_path    : str or None
-          - cfd_pressure_image_path     : str or None
-          - cfd_velocity_image_path     : str or None
+          - cfd_pressure_plot_path     : str or None
+          - cfd_velocity_plot_path     : str or None
           - additional_images           : List[str]
         """
         self._refresh_patient_info()
         flow_str = f"{self.flow_rate.get():.1f}".replace('.', '_')
-        cfd_dir = os.path.join(self.app.full_folder_path, f"CFD_{flow_str}")
+        cfd_dir = Path(self.app.full_folder_path) / f"CFD_{flow_str}"
 
         # 1) assembly / post‑processed geometry
         postprocessed = None
-        # try renamed file first
-        for p in Path(cfd_dir).glob("*_assem.png"):
-            postprocessed = str(p); break
-        # fallback to old name if needed
+        tri_surface_dir = cfd_dir / "constant" / "triSurface"
+        if tri_surface_dir.exists():
+            # Try renamed file
+            for p in tri_surface_dir.glob("*_assem.png"):
+                postprocessed = str(p)
+                break
+            # fallback to old name if needed
+            if not postprocessed:
+                for p in tri_surface_dir.glob("*assembly.png"):
+                    postprocessed = str(p)
+                    break
+    
         if not postprocessed:
-            for p in Path(cfd_dir).glob("*assembly.png"):
-                postprocessed = str(p); break
-        if not postprocessed:
+            self.logger.log_warning("Assembly image not found for report")
             messagebox.showwarning("Warning", "Assembly image not found; report may be incomplete.")
 
         # 2) pressure & velocity
         pressure = None
-        for p in Path(cfd_dir).glob("*p_plot.png"):
-            pressure = str(p); break
+        for p in cfd_dir.glob("*p_plot.png"):
+            pressure = str(p)
+            break
         if not pressure:
-            for p in Path(cfd_dir).glob("*pressure*.png"):
-                pressure = str(p); break
+            for p in cfd_dir.glob("*pressure*.png"):
+                pressure = str(p)
+                break
 
         velocity = None
-        for v in Path(cfd_dir).glob("*v_plot.png"):
-            velocity = str(v); break
+        for v in cfd_dir.glob("*v_plot.png"):
+            velocity = str(v)
+            break
         if not velocity:
-            for v in Path(cfd_dir).glob("*velocity*.png"):
-                velocity = str(v); break
+            for v in cfd_dir.glob("*velocity*.png"):
+                velocity = str(v)
+                break
 
-        # 3) any other PNGs in cfd_dir
-        additional = [ str(p) for p in sorted(Path(cfd_dir).glob("*.png")) ]
+        # 3) any other PNGs in cfd_dir **excluding** the above three
+        reserved = {postprocessed, pressure, velocity}
+        additional = []
+        for p in sorted(cfd_dir.glob("*.png")):
+            p_str = str(p)
+            if p_str not in reserved:
+                additional.append(p_str)
 
         return {
-            "cfd_dir": cfd_dir,
+            "cfd_dir": str(cfd_dir),
             "postprocessed_image_path": postprocessed,
-            "cfd_pressure_image_path": pressure,
-            "cfd_velocity_image_path": velocity,
+            "cfd_pressure_plot_path": pressure,
+            "cfd_velocity_plot_path": velocity,
             "additional_images": additional
         }
 
@@ -2559,12 +2819,12 @@ class Tab4Manager:
             flow_rate_val=self.flow_rate.get(),
             airway_resistance=None,
             postprocessed_image_path=paths["postprocessed_image_path"],
-            cfd_pressure_image_path=paths["cfd_pressure_image_path"],
-            cfd_velocity_image_path=paths["cfd_velocity_image_path"],
-            add_preview_elements=True,   # watermark
+            cfd_pressure_plot_path=paths["cfd_pressure_plot_path"],
+            cfd_velocity_plot_path=paths["cfd_velocity_plot_path"],
+            add_preview_elements=True, 
             date_of_report=None,
             additional_images=paths["additional_images"],
-            approx_min_csa=self.approx_min_csa
+            min_csa=self.min_csa
         )
 
         if not success:
@@ -2612,190 +2872,120 @@ class Tab4Manager:
             
         except Exception as e:
             messagebox.showerror("Error", f"Failed to display PDF in viewer:\n{str(e)}")
-    
-    def _export_results_to_pdf(self,args):
-        """
-        Save the report as a PDF file to a user-selected location,
-        using the standalone 'generate_airway_report' function.
-        """
-        self._refresh_patient_info()
-        
-        try:
-            # Get flow rate as a string for naming
-            flow_str = f"{self.flow_rate.get():.1f}".replace('.', '_')
-            
-            # Create default filename
-            default_filename = f"airway_analysis_flow_{flow_str}.pdf"
-            
-            # 1. First discover USB drives/external storage
-            mounts = []
-            for d in Path("/media").iterdir() if Path("/media").exists() else []:
-                if d.is_dir(): mounts.append(str(d))
-            
-            user_media = Path("/run/media") / getpass.getuser()
-            for d in user_media.iterdir() if user_media.exists() else []:
-                if d.is_dir(): mounts.append(str(d))
-            
-            if not mounts:
-                # No external drives found, fall back to desktop or documents
-                messagebox.showwarning(
-                    "No USB Drive Found",
-                    "No USB drives were detected. The report will be saved to your selected location instead."
-                )
-                initial_dir = os.path.expanduser("~/Desktop")
-            else:
-                # Use the first USB drive as initial directory
-                initial_dir = mounts[0]
-            
-            # 2. Open a save file dialog allowing the user to select location
-            pdf_path = filedialog.asksaveasfilename(
-                initialdir=initial_dir,
-                initialfile=default_filename,
-                defaultextension=".pdf",
-                filetypes=[("PDF files", "*.pdf")]
-            )
-            
-            # Check if user cancelled the dialog
-            if not pdf_path:
-                return False
-            
-            # Get the CFD path for images
-            cfd_dir = os.path.join(self.app.full_folder_path, f"CFD_{flow_str}")
-            
-            # Dynamically locate images (similar to existing code)
-            postprocessed_image_path = None
-            assem_files = list(Path(cfd_dir).glob("*assembly.png"))
-            if assem_files:
-                postprocessed_image_path = str(assem_files[0])
-            else:
-                # Check in triSurface directory for assembly.png if it exists
-                trisurf_path = os.path.join(cfd_dir, "constant", "triSurface", "assembly.png")
-                if os.path.exists(trisurf_path):
-                    postprocessed_image_path = trisurf_path
-            
-            # Similarly, find pressure and velocity images
-            pressure_images = list(Path(cfd_dir).glob("p_cut_1.png"))
-            velocity_images = list(Path(cfd_dir).glob("v_cut_1.png"))
-            
-            cfd_pressure_image_path = str(pressure_images[0]) if pressure_images else None
-            cfd_velocity_image_path = str(velocity_images[0]) if velocity_images else None
-            
-            # Get all image files for additional images
-            image_files = sorted(Path(cfd_dir).glob("*.png"))
-            image_paths = [str(p) for p in image_files if p.is_file()]
-            
-            # Call the standalone function
-            success = generate_airway_report(
-                pdf_path=pdf_path,
-                cfd_dir=cfd_dir,
-                patient_name=self.app.patient_name.get(),
-                patient_dob=self.app.dob.get(),
-                physician=self.app.patient_doctor_var.get(),
-                analysis_type=self.analysis_option.get(),
-                airway_volume=self.airway_volume,   # from segmentation
-                flow_rate_val=self.flow_rate.get(), # LPM
-                airway_resistance=None,             # or calculate if available
-                postprocessed_image_path=postprocessed_image_path,
-                cfd_pressure_image_path=cfd_pressure_image_path,
-                cfd_velocity_image_path=cfd_velocity_image_path,
-                add_preview_elements=False,  # no watermark in final PDF
-                additional_images=image_paths,
-                approx_min_csa=self.approx_min_csa
-            )
 
-            if success:
-                self.report_pdf_path = pdf_path
-                messagebox.showinfo(
-                    "Report Saved",
-                    f"Successfully saved PDF report to:\n{pdf_path}"
-                )
-                return True
-            else:
-                messagebox.showerror("Error", "Failed to generate final PDF report.")
-                return False
-            
-        except Exception as e:
-            messagebox.showerror("Error", f"Failed to save report:\n{str(e)}")
-            return False
     
     def _save_results_to_drive(self):
-        """Generate the final PDF report and copy the entire session (including report) onto the USB."""
-        # 1. Make sure we have results
+        """Generate the PDF & copy the session onto the USB, showing a “Saving…” dialog."""
         src = getattr(self.app, "full_folder_path", None)
         if not src or not os.path.exists(src):
             tk.messagebox.showerror("Error", "No results folder to save.")
             return
 
-        # 2. Grab the mount path chosen in Tab 2
         dest_root = getattr(self.app, "selected_drive_path", None)
         if not dest_root or not os.path.isdir(dest_root):
             tk.messagebox.showerror(
                 "Error",
-                "Could not find the original USB mount. "
-                "Please go back and re‑select your drive."
+                "Could not find the original USB mount. Please go back and re‑select your drive."
             )
             return
 
-        # 3. Build the folders as /<usb‑mount>/<user>/<patient>/<session>
         gui_user = self.app.username_var.get().strip() or "UnknownUser"
-        patient  = self.app.patient_name.get().strip() or "UnknownPatient"
+        patient  = self.app.patient_name.get().strip()   or "UnknownPatient"
         session  = os.path.basename(src.rstrip(os.sep))
         target   = os.path.join(dest_root, gui_user, patient, session)
 
+        # create & show the saving dialog
+        save_dialog = ctk.CTkToplevel(self.app)
+        save_dialog.title("Saving Results")
+        save_dialog.geometry("300x100")
+        save_dialog.transient(self.app)
+
+        ctk.CTkLabel(save_dialog, text="Saving to external drive…\nThis may take a few minutes.").pack(pady=(20,5))
+        pb = ctk.CTkProgressBar(save_dialog, mode="indeterminate")
+        pb.pack(fill="x", padx=20, pady=(0,10))
+        pb.start()
+
+        # **force the dialog to render** before grabbing
+        save_dialog.update_idletasks()
+        save_dialog.update()
         try:
-            # Ensure the target directory exists
-            os.makedirs(target, exist_ok=True)
+            save_dialog.grab_set()
+        except tk.TclError:
+            # if it still fails, we’ll just let it run modeless
+            pass
 
-            # Segmentation-only → copy everything *except* any CFD_ directories
-            if self.analysis_option.get() == "Upper Airway Segmentation":
+        def _do_copy():
+            try:
+                os.makedirs(target, exist_ok=True)
+
+                # segmentation‑only
+                if self.analysis_option.get() == "Upper Airway Segmentation":
+                    for name in os.listdir(src):
+                        if name.startswith("CFD_"):
+                            continue
+                        s = os.path.join(src, name)
+                        d = os.path.join(target, name)
+                        if os.path.isdir(s):
+                            shutil.copytree(s, d, dirs_exist_ok=True)
+                        else:
+                            shutil.copy2(s, d)
+
+                    self.app.after(0, lambda: tk.messagebox.showinfo(
+                        "Success",
+                        f"Segmentation results saved to:\n{target}"
+                    ))
+                    return
+
+                # simulation: generate PDF first
+                if "Simulation" in self.analysis_option.get():
+                    flow_str = f"{self.flow_rate.get():.1f}".replace('.', '_')
+                    pdf_name = f"airway_analysis_flow_{flow_str}.pdf"
+                    pdf_path = os.path.join(src, pdf_name)
+
+                    # gather image paths
+                    paths = self._report_image_paths()
+
+                    generate_airway_report(
+                        pdf_path=preview_pdf,
+                        cfd_dir=paths["cfd_dir"],
+                        patient_name=self.app.patient_name.get(),
+                        patient_dob=self.app.dob.get(),
+                        physician=self.app.patient_doctor_var.get(),
+                        analysis_type=self.analysis_option.get(),
+                        airway_volume=self.airway_volume,
+                        flow_rate_val=self.flow_rate.get(),
+                        airway_resistance=None,
+                        postprocessed_image_path=paths["postprocessed_image_path"],
+                        cfd_pressure_plot_path=paths["cfd_pressure_plot_path"],
+                        cfd_velocity_plot_path=paths["cfd_velocity_plot_path"],
+                        add_preview_elements=True, 
+                        date_of_report=None,
+                        additional_images=paths["additional_images"],
+                        min_csa=self.min_csa
+                    )
+
+                # copy everything (including the newly created PDF)
                 for name in os.listdir(src):
-                    # skip any CFD subfolders
-                    if name.startswith("CFD_"):
-                        continue
                     s = os.path.join(src, name)
                     d = os.path.join(target, name)
                     if os.path.isdir(s):
                         shutil.copytree(s, d, dirs_exist_ok=True)
                     else:
                         shutil.copy2(s, d)
-                tk.messagebox.showinfo("Success", f"Segmentation results saved to:\n{target}")
-                return
 
-            if "Simulation" in self.analysis_option.get():
-                # --- A) Generate the PDF report **into** your session folder first ---
-                # (so it gets picked up by the copy loop below)
-                flow_str = f"{self.flow_rate.get():.1f}".replace('.', '_')
-                pdf_filename = f"airway_analysis_flow_{flow_str}.pdf"
-                pdf_path = os.path.join(src, pdf_filename)
+                self.app.after(0, lambda: tk.messagebox.showinfo(
+                    "Success",
+                    f"All results & report saved to:\n{target}"
+                ))
 
-                # Call your existing report generator:
-                generate_airway_report(
-                    pdf_path=pdf_path,
-                    cfd_dir=os.path.join(src, f"CFD_{flow_str}"),
-                    patient_name=self.app.patient_name.get(),
-                    patient_dob=self.app.dob.get(),
-                    physician=self.app.patient_doctor_var.get(),
-                    analysis_type=self.analysis_option.get(),
-                    airway_volume=self.airway_volume,
-                    flow_rate_val=self.flow_rate.get(),
-                    airway_resistance=None,
-                    postprocessed_image_path=None,   # let generate pick up default
-                    cfd_pressure_image_path=None,
-                    cfd_velocity_image_path=None,
-                    add_preview_elements=False,
-                    additional_images=[]            # or gather if you need
-                )
+            except Exception as e:
+                self.app.after(0, lambda: tk.messagebox.showerror(
+                    "Error",
+                    f"Failed to save results to drive:\n{e}"
+                ))
+            finally:
+                # tear down the saving dialog on the main thread
+                self.app.after(0, save_dialog.destroy)
 
-                # --- B) Copy **all** contents of the session folder (now including the PDF) ---
-                for name in os.listdir(src):
-                    s = os.path.join(src, name)
-                    d = os.path.join(target, name)
-                    if os.path.isdir(s):
-                        shutil.copytree(s, d, dirs_exist_ok=True)
-                    else:
-                        shutil.copy2(s, d)
-
-            tk.messagebox.showinfo("Success", f"All results & report saved to:\n{target}")
-
-        except Exception as e:
-            tk.messagebox.showerror("Error", f"Failed to save results to drive:\n{e}")
+        # do the heavy work on a background thread
+        threading.Thread(target=_do_copy, daemon=True).start()

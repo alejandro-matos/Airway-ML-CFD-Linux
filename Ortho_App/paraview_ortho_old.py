@@ -142,46 +142,38 @@ clip1Display.SetScalarBarVisibility(renderView1, True)
 HideInteractiveWidgets(proxy=clip1.ClipType)
 renderView1.CameraPosition = [0.2033, 0.0156, 0.0884]
 renderView1.CameraFocalPoint = [0.0598, 0.0873, 0.0523]
-renderView1.CameraViewUp = [0, 0, 1]
+renderView1.CameraViewUp = [-0.18498, 0.12046, 0.975]
 renderView1.CameraParallelScale = 0.052
-path8 = os.path.join(path1, "p_cut_right.png")
+path8 = os.path.join(path1, "p_cut_1.png")
 SaveScreenshot(path8, renderView1, 16, ImageResolution=[1577, 733], OverrideColorPalette='WhiteBackground')
 ColorBy(clip1Display, ('POINTS', 'U', 'Magnitude'))
 HideScalarBarIfNotNeeded(pLUT, renderView1)
 clip1Display.RescaleTransferFunctionToDataRange(True, False)
 clip1Display.SetScalarBarVisibility(renderView1, True)
-path9 = os.path.join(path1, "v_cut_right.png")
+path9 = os.path.join(path1, "v_cut_1.png")
 SaveScreenshot(path9, renderView1, 16, ImageResolution=[1577, 733], OverrideColorPalette='WhiteBackground')
-Delete(clip1)
-Show(casefoam, renderView1)
 
-# Create the clip filter once
-clip1 = Clip(registrationName='Clip1', Input=casefoam)
-clip1.ClipType = 'Plane'
-clip1.HyperTreeGridClipper = 'Plane'
-clip1.Scalars = ['POINTS','p']
-
-# Hide the original geometry
-Hide(casefoam, renderView1)
-
-# — LEFT nostril —
-clip1.ClipType.Origin = [0.04306, 0.0468, 0.05385]    # left‐nostril plane
-clip1.ClipType.Normal = [1,0,0]                       # slice normal
-clip1.UpdatePipeline()
-clipDisp = Show(clip1, renderView1)
-clipDisp.RescaleTransferFunctionToDataRange(True,False)
+# p & v section view pic-2 export
+clip1.ClipType.Origin = [0.04306, 0.0468, 0.05385]
+ColorBy(clip1Display, ('POINTS', 'U', 'Magnitude'))
 renderView1.Update()
-
-# pressure (p) on left
-ColorBy(clipDisp, ('POINTS','p'))
-SaveScreenshot(os.path.join(path1,"p_cut_left.png"), renderView1, ImageResolution=[1577,733], OverrideColorPalette='WhiteBackground')
-# velocity (U) on left
-ColorBy(clipDisp, ('POINTS','U','Magnitude'))
-clipDisp.RescaleTransferFunctionToDataRange(True,False)
-renderView1.Update()
-SaveScreenshot(os.path.join(path1,"v_cut_left.png"), renderView1, ImageResolution=[1577,733],OverrideColorPalette='WhiteBackground')
+renderView1.CameraPosition = [0.2381, 0.10142, 0.0492]
+renderView1.CameraFocalPoint = [0.0216, 0.10142, 0.0493]
+renderView1.CameraViewUp = [0.0, 0.0, 1.0]
+renderView1.CameraParallelScale = 0.056
+path10 = os.path.join(path1, "v_cut_2.png")
+SaveScreenshot(path10, renderView1, 16, ImageResolution=[1577, 733], OverrideColorPalette='WhiteBackground')
+ColorBy(clip1Display, ('POINTS', 'p'))
+HideScalarBarIfNotNeeded(uLUT, renderView1)
+clip1Display.RescaleTransferFunctionToDataRange(True, False)
+clip1Display.SetScalarBarVisibility(renderView1, True)
+pLUT.RescaleTransferFunction(-13, 66)
+pPWF.RescaleTransferFunction(-13, 66)
+path11 = os.path.join(path1, "p_cut_2.png")
+SaveScreenshot(path11, renderView1, 16, ImageResolution=[1577, 733], OverrideColorPalette='WhiteBackground')
+# rescale color and/or opacity maps used to exactly fit the current data range
+clip1Display.RescaleTransferFunctionToDataRange(False, True)
 Delete(clip1)
-Show(casefoam, renderView1)
 
 # export streamline pic
 # stream 1

@@ -20,7 +20,7 @@ class ProgressSection(ctk.CTkFrame):
         self.progress_frame = ctk.CTkFrame(self, fg_color="transparent")
         self.progress_frame.pack(fill="x", padx=50, pady=(0, 10))
         
-        # Progress bar that supports both determinate and indeterminate modes (only got indeterminate to work so far)
+        # Progress bar that supports both determinate and indeterminate modes 
         self.progress_bar = ttk.Progressbar(
             self.progress_frame,
             mode='indeterminate',
@@ -47,7 +47,10 @@ class ProgressSection(ctk.CTkFrame):
             command=self._handle_cancel,
             width=100,
             state="disabled",
-            font=UI_SETTINGS["FONTS"]["NORMAL"]
+            font=UI_SETTINGS["FONTS"]["NORMAL"],
+            fg_color="#E53935",  # Red 
+            hover_color="#C62828",  # Darker red
+            text_color="white"
         )
         self.cancel_button.pack(pady=5)
         
@@ -55,6 +58,8 @@ class ProgressSection(ctk.CTkFrame):
         self._cancel_callback_func = None
         # Track whether cancellation is in progress
         self.cancellation_in_progress = False
+        # Add a set to track shown messages
+        self._shown_messages = set()
 
     def _safe_update(self, func):
         """Safely update GUI from any thread"""
@@ -81,18 +86,23 @@ class ProgressSection(ctk.CTkFrame):
                 text="Cancellation in progress...",
                 text_color="orange"  # Visual indication
             )
-            # Add a message to the output
-            self.output_text.insert("end", "Cancellation requested. Stopping process...\n")
-            self.output_text.see("end")
+            # Only add the message if it hasn't been shown already
+            if "cancel_requested" not in self._shown_messages:
+                self.output_text.insert("end", "Cancellation requested. Stopping process...\n")
+                self.output_text.see("end")
+                self._shown_messages.add("cancel_requested")
+                
             # Call the actual cancellation callback
             self._cancel_callback_func()
             
     def start(self, message="Processing...", indeterminate=False):
         """Start the progress bar with a message"""
         def _start():
-            # Reset cancellation flag
+            # Reset cancellation flag and message tracking
             self.cancellation_in_progress = False
+            self._shown_messages.clear()  # Clear message history on start
             
+            # Existing code remains the same
             self.progress_label.configure(
                 text=message,
                 font=UI_SETTINGS["FONTS"]["NORMAL"],
@@ -133,28 +143,30 @@ class ProgressSection(ctk.CTkFrame):
                 text_color=text_color
             )
             
+            # Only add "Process was cancelled" message if it hasn't been shown already
+            if "Cancel" in message and "process_cancelled" not in self._shown_messages:
+                self.output_text.insert("end", "Process was cancelled by user.\n")
+                self.output_text.see("end")
+                self._shown_messages.add("process_cancelled")
+                
             # Reset cancellation flag
             self.cancellation_in_progress = False
             # Disable the cancel button
             self.cancel_button.configure(state="disabled")
-            # Add a final message to the output if it was a cancellation
-            if "Cancel" in message:
-                self.output_text.insert("end", "Process was cancelled by user.\n")
-                self.output_text.see("end")
         
         self._safe_update(_stop)
-
         
     def update_progress(self, value, message=None, output_line=None):
         """Update progress bar value and optionally add output line"""
         def _update():
-            if not self.cancellation_in_progress:
-                if self.progress_bar['mode'] == 'determinate':
-                    self.progress_bar['value'] = value
-                    
-                if message:
-                    self.progress_label.configure(text=message)
+            # Always update the message if provided, even during cancellation
+            if message:
+                self.progress_label.configure(text=message)
                 
+            # Only update progress bar value if not cancelling
+            if not self.cancellation_in_progress and self.progress_bar['mode'] == 'determinate':
+                self.progress_bar['value'] = value
+            
             # Always show output lines even during cancellation
             if output_line:
                 self.output_text.insert("end", output_line + "\n")

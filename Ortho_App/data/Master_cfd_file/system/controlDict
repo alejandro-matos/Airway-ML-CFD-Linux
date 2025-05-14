@@ -22,7 +22,7 @@ startTime       0;
 
 stopAt          endTime;
 
-endTime         100; //1000;
+endTime         20; //100; //1000;     #TODO: Review how many steps to perform
 
 deltaT          1;
 

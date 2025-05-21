@@ -4,6 +4,9 @@ import numpy as np
 import os
 import argparse
 
+
+# TODO: Change all -time 20 to -time 100 or whatever number of steps used
+
 def run_command(command, case_dir=None):
     """Run a shell command and return its output"""
     if case_dir:
@@ -15,7 +18,7 @@ def run_command(command, case_dir=None):
 
 def get_pressure(boundary_name, case_dir=None):
     """Get pressure at specified boundary"""
-    command = f"postProcess -time 1500 -func \"patchAverage(name={boundary_name},p)\""
+    command = f"postProcess -time 20 -func \"patchAverage(name={boundary_name},p)\""
     output = run_command(command, case_dir)
     
     # Extract pressure value
@@ -26,7 +29,7 @@ def get_pressure(boundary_name, case_dir=None):
 
 def get_velocity(boundary_name, case_dir=None):
     """Get velocity at specified boundary"""
-    command = f"postProcess -time 1500 -func \"patchAverage(name={boundary_name},U)\""
+    command = f"postProcess -time 20 -func \"patchAverage(name={boundary_name},U)\""
     output = run_command(command, case_dir)
     
     # Extract velocity components
@@ -42,7 +45,7 @@ def get_velocity(boundary_name, case_dir=None):
         }
     return None
 
-def extract_cfd_data(case_dir, time="1500", boundaries=("inlet", "outlet")):
+def extract_cfd_data(case_dir, time="20", boundaries=("inlet", "outlet")):
     """
     Extract average pressure and velocity from the OpenFOAM case
     and return them in a dictionary.
@@ -68,7 +71,7 @@ def main():
     # Set up command line argument parsing
     parser = argparse.ArgumentParser(description='Extract pressure and velocity from OpenFOAM case')
     parser.add_argument('--case', '-c', type=str, help='Path to OpenFOAM case directory', default=os.getcwd())
-    parser.add_argument('--time', '-t', type=str, help='Time to extract (default: 1500)', default='1500')
+    parser.add_argument('--time', '-t', type=str, help='Time to extract (default: 20)', default='20')
     parser.add_argument('--boundaries', '-b', nargs='+', help='Boundaries to extract (default: inlet and outlet)', 
                         default=['inlet', 'outlet'])
     

@@ -13,6 +13,9 @@ from reportlab.pdfgen import canvas
 import platform
 import subprocess
 import open3d as o3d
+import open3d.visualization.gui as gui
+import open3d.visualization.rendering as rendering
+
 import math
 import shutil
 import vtk
@@ -32,8 +35,6 @@ from ..components.buttons import _create_info_button
 
 from ..utils.segmentation import AirwaySegmentator
 from ..utils.generate_airway_report import generate_airway_report
-from ..utils.get_cfd_data import extract_cfd_data
-from ..utils.interactive_slice_viewer import open_interactive_slice_viewer
 from gui.utils.basic_utils import AppLogger
 from gui.utils.icons import create_icon, load_ctk_icon
 
@@ -108,6 +109,26 @@ class Tab4Manager:
             anchor="center"
         ).grid(row=0, column=1)
     
+    def _confirm_shutdown(self):
+        """Ask the user – then shut the machine down."""
+        if messagebox.askyesno(
+            "Confirm Shutdown",
+            "Are you sure you want to shut down the computer?"
+        ):
+            self.logger.log_info("User confirmed shutdown")
+            # on Linux; on Windows you might use "shutdown /s /t 0"
+            os.system("shutdown now")
+    
+    def _confirm_restart(self):
+        """Ask the user – then reboot."""
+        if messagebox.askyesno(
+            "Confirm Restart",
+            "Are you sure you want to restart the computer?"
+        ):
+            self.logger.log_info("User confirmed restart")
+            # on Linux; on Windows you might use "shutdown /r /t 0"
+            os.system("reboot")
+    
     def _create_navigation(self):
         """Create navigation with only a Back button in the style of NavigationFrame"""
         # Use the NavigationFrame class instead of creating custom frames
@@ -116,6 +137,12 @@ class Tab4Manager:
             previous_label="Review and Confirm",
             next_label="",  # Empty label for next (won't display)
             back_command=self._confirm_back,
+        )
+
+        # Add Shutdown/Restart button manually
+        self.nav_frame.add_shutdown_restart_button(
+            shutdown_cmd=self._confirm_shutdown,
+            restart_cmd=self._confirm_restart
         )
 
     def _confirm_back(self):
@@ -2221,6 +2248,8 @@ class Tab4Manager:
             
             return True
             
+            
+
         except Exception as e:
             self.logger.log_error(f"Error running ParaView: {str(e)}")
             return False
@@ -2770,6 +2799,7 @@ class Tab4Manager:
         except Exception as e:
             self.logger.log_error(f"Error in assembly rendering: {e}")
             return None
+        
     
     def _interactive_blender_results(self):
         """
@@ -2778,49 +2808,53 @@ class Tab4Manager:
         """
         try:
             def view_components():
-                # Base path for components
-                ## tttkkk need to change this path to be set dynamically by user and all that
                 base_path = os.path.join(str(self._get_full_cfd_path()), "constant", "triSurface")
 
-                
                 # Load inlet (green)
                 inlet_path = os.path.join(base_path, "inlet.stl")
                 inlet_mesh = o3d.io.read_triangle_mesh(inlet_path)
                 inlet_mesh.compute_vertex_normals()
-                inlet_mesh.paint_uniform_color([0, 1, 0])  # Green
-                
+                inlet_mesh.paint_uniform_color([0, 1, 0])
+
                 # Load outlet (red)
                 outlet_path = os.path.join(base_path, "outlet.stl")
                 outlet_mesh = o3d.io.read_triangle_mesh(outlet_path)
                 outlet_mesh.compute_vertex_normals()
-                outlet_mesh.paint_uniform_color([1, 0, 0])  # Red
-                
+                outlet_mesh.paint_uniform_color([1, 0, 0])
+
                 # Load wall (gray)
                 wall_path = os.path.join(base_path, "wall.stl")
                 wall_mesh = o3d.io.read_triangle_mesh(wall_path)
                 wall_mesh.compute_vertex_normals()
-                wall_mesh.paint_uniform_color([0.7, 0.7, 0.7])  # Gray
-                
-                # Create visualization window with title
+                wall_mesh.paint_uniform_color([0.7, 0.7, 0.7])
+
+                # Create visualization window
                 vis = o3d.visualization.Visualizer()
                 vis.create_window(window_name="Airway Components Viewer", width=700, height=450)
-                
-                # Add all geometries
+
                 vis.add_geometry(inlet_mesh)
                 vis.add_geometry(outlet_mesh)
                 vis.add_geometry(wall_mesh)
-                
-                # Set rendering options
+
                 render_option = vis.get_render_option()
-                render_option.background_color = [1, 1, 1]  # White background
+                render_option.background_color = [1, 1, 1]
                 render_option.point_size = 1.0
                 render_option.show_coordinate_frame = False
-                
-                # Set view control for better initial view
+
                 view_control = vis.get_view_control()
                 view_control.set_zoom(0.8)
-                
-                # Add text explaining the color coding
+
+                # Wait briefly to allow window to appear
+                time.sleep(1.5)
+
+                # Force window to stay on top using wmctrl
+                try:
+                    subprocess.run([
+                        "wmctrl", "-r", "Airway Components Viewer", "-b", "add,above"
+                    ], check=True)
+                except Exception as e:
+                    print(f"Failed to set always-on-top: {e}")
+
                 vis.run()
                 vis.destroy_window()
             
@@ -2836,29 +2870,38 @@ class Tab4Manager:
         """
         try:
             def view_mesh():
-                # Load the STL file
+                # Load mesh
                 mesh = o3d.io.read_triangle_mesh(stl_path)
                 mesh.compute_vertex_normals()
-                
-                # Create a Visualizer instance
+
+                # Initialize the GUI (only call once per process)
+                app = gui.Applica
+
                 vis = o3d.visualization.Visualizer()
                 vis.create_window(window_name="Interactive STL Viewer", width=800, height=600)
                 vis.add_geometry(mesh)
 
-                # Set rendering options
                 render_option = vis.get_render_option()
-                render_option.background_color = [1, 1, 1]  # White background
+                render_option.background_color = [1, 1, 1]
                 render_option.point_size = 1.0
                 render_option.show_coordinate_frame = False
-                
-                # Set view control for better initial view
+
                 view_control = vis.get_view_control()
                 view_control.set_zoom(0.8)
-                
-                # Run the visualizer and then destroy the window when done
+
+                # Delay to let the window fully initialize
+                time.sleep(1.5)
+
+                # Use wmctrl to set the window to always stay on top
+                try:
+                    subprocess.run([
+                        "wmctrl", "-r", "Interactive STL Viewer", "-b", "add,above"
+                    ], check=True)
+                except Exception as e:
+                    print(f"Failed to set always-on-top: {e}")
+
                 vis.run()
                 vis.destroy_window()
-
             # Start the viewer in a daemon thread so it doesn't block the main GUI.
             threading.Thread(target=view_mesh, daemon=True).start()
             
@@ -3090,6 +3133,9 @@ class Tab4Manager:
                     # gather image paths
                     paths = self._report_image_paths()
 
+                    with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as tmp:
+                        preview_pdf = tmp.name
+
                     generate_airway_report(
                         pdf_path=preview_pdf,
                         cfd_dir=paths["cfd_dir"],
@@ -3124,9 +3170,9 @@ class Tab4Manager:
                 ))
 
             except Exception as e:
-                self.app.after(0, lambda: tk.messagebox.showerror(
-                    "Error",
-                    f"Failed to save results to drive:\n{e}"
+                # capture e in the lambda’s default so it’s in scope
+                self.app.after(0, lambda e=e: messagebox.showerror(
+                    "Error", f"Failed to save results to drive:\n{e}"
                 ))
             finally:
                 # tear down the saving dialog on the main thread

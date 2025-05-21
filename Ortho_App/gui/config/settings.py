@@ -148,8 +148,6 @@ EXTERNAL_APPS: Dict[str, Dict[str, Any]] = {
 }
 
 
-
-
 ### TAB2 ##### 
 TAB2_SETTINGS: Dict[str, Any] = {
     # Which fields must be filled before proceeding
@@ -204,11 +202,6 @@ TAB2_SETTINGS: Dict[str, Any] = {
         },
     },
 
-    # # Where to look for external mounts when browsing
-    # "MOUNT_PATHS": [
-    #     Path("/media"),
-    #     Path("/run/media") / getpass.getuser(),
-    # ],
 }
 
 

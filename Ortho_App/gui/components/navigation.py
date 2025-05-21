@@ -1,5 +1,10 @@
 import customtkinter as ctk
 from gui.config.settings import UI_SETTINGS
+from tkinter import messagebox
+import os
+import platform
+import subprocess
+from datetime import datetime
 
 class NavigationFrame(ctk.CTkFrame):
     """A navigation frame with back/next buttons and labels, ensuring no duplicates"""
@@ -118,3 +123,133 @@ class NavigationFrame2(ctk.CTkFrame):
             self.back_button = button
 
         return frame
+    
+    def add_shutdown_restart_button(self):
+        """Add a shutdown/restart button to the navigation frame."""
+        shutdown_btn = ctk.CTkButton(
+            self,
+            text="Shutdown / Restart",
+            command=self._prompt_shutdown_restart,
+            fg_color="#8b0000",
+            hover_color="#a80000",
+            text_color="white",
+            font=("Arial", 14),
+            width=160,
+            height=40
+        )
+        shutdown_btn.grid(row=0, column=2, padx=10, pady=5)
+
+    def _prompt_shutdown_restart(self):
+        """Prompt the user to shutdown or restart the computer."""
+        choice = messagebox.askquestion(
+            "System Action",
+            "Do you want to shut down or restart the computer?",
+            icon="question"
+        )
+
+        if choice == "yes":
+            response = messagebox.askyesno("Confirm Action", "Yes = Shutdown\nNo = Restart")
+            if response:
+                self._shutdown()
+            else:
+                self._restart()
+        else:
+            messagebox.showinfo("Cancelled", "No action taken.")
+
+    def _shutdown(self):
+        try:
+            if platform.system() == "Linux":
+                subprocess.call(["systemctl", "poweroff"])
+            elif platform.system() == "Windows":
+                subprocess.call(["shutdown", "/s", "/t", "1"])
+        except Exception as e:
+            messagebox.showerror("Error", f"Shutdown failed: {e}")
+
+    def _restart(self):
+        try:
+            if platform.system() == "Linux":
+                subprocess.call(["systemctl", "reboot"])
+            elif platform.system() == "Windows":
+                subprocess.call(["shutdown", "/r", "/t", "1"])
+        except Exception as e:
+            messagebox.showerror("Error", f"Restart failed: {e}")
+    
+    def add_shutdown_restart_button(self, shutdown_cmd, restart_cmd):
+        """
+        Call this *after* __init__ to add two buttons on the right:
+        a “Shutdown” and a “Restart”.
+        """
+        # Create a little frame to hold both buttons side by side
+        btn_container = ctk.CTkFrame(self, fg_color="transparent")
+        btn_container.pack(side="right", padx=40, pady=(5,10))
+
+        # Shutdown button
+        restart_btn = ctk.CTkButton(
+            btn_container,
+            text="Restart PC",
+            command=restart_cmd,
+            width=150, height=50,
+            font=UI_SETTINGS["FONTS"]["BUTTON_TEXT"],
+            fg_color=UI_SETTINGS["COLORS"]["NAV_BUTTON"],
+            hover_color=UI_SETTINGS["COLORS"]["NAV_HOVER"]
+        )
+        restart_btn.pack(side="left", padx=(0,10))
+
+        # Restart button
+        shutdown_btn = ctk.CTkButton(
+            btn_container,
+            text="Shutdown PC",
+            command=shutdown_cmd,
+            width=150, height=50,
+            font=UI_SETTINGS["FONTS"]["BUTTON_TEXT"],
+            fg_color=UI_SETTINGS["COLORS"]["WARNING"],
+            hover_color=UI_SETTINGS["COLORS"]["NAV_HOVER"]
+        )
+        shutdown_btn.pack(side="left")
+
+class ShutdownRestartFrame(ctk.CTkFrame):
+    def __init__(self, master):
+        super().__init__(master)
+        self.shutdown_btn = ctk.CTkButton(self, text="Shutdown / Restart", command=self.prompt_action)
+        self.shutdown_btn.pack(pady=20)
+
+    def prompt_action(self):
+        choice = messagebox.askquestion(
+            "System Action",
+            "Do you want to shut down or restart the computer?",
+            icon='question'
+        )
+
+        if choice == "yes":
+            response = messagebox.askyesno("Confirm Action", "Yes = Shutdown\nNo = Restart")
+            if response:
+                self.shutdown()
+            else:
+                self.restart()
+        else:
+            messagebox.showinfo("Cancelled", "No action was taken.")
+
+    def _log(self, message):
+        log_path = "/home/cfdapp/cfdapp_log.txt"
+        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        with open(log_path, "a") as log:
+            log.write(f"[{timestamp}] {message}\n")
+
+    def _cleanup_processes(self):
+        self._log("Flushing file system buffers with sync.")
+        subprocess.call(["sync"])
+        self._log("Killing related processes.")
+        for proc in ["nnUNet", "blender", "paraview", "main.py", "python", "snappyHexMesh", 'simpleFoam']:
+            subprocess.call(["killall", "-f", proc])
+
+    def shutdown(self):
+        if platform.system() == "Linux":
+            self._cleanup_processes()
+            self._log("Shutting down system.")
+            subprocess.call(["sudo", "/sbin/poweroff"])
+
+    def restart(self):
+        if platform.system() == "Linux":
+            self._cleanup_processes()
+            self._log("Restarting system.")
+            subprocess.call(["sudo", "/sbin/reboot"])

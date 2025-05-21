@@ -37,7 +37,8 @@ def generate_airway_report(
     """
 
     # 1) Extract CFD data from the specified case directory
-    cfd_data = extract_cfd_data(cfd_dir)  # returns e.g. {"inlet_pressure", "outlet_pressure", "pressure_drop", "inlet_velocity", ...}
+    cfd_data = extract_cfd_data(cfd_dir) or {}
+
 
     # 2) Convert/compute any fields you want
     inlet_velocity = None
@@ -46,13 +47,10 @@ def generate_airway_report(
     pressure_drop_kpa = None
 
     if cfd_data:
-        inlet_velocity  = cfd_data.get("inlet_velocity",  {}).get("magnitude", None)
-        outlet_velocity = cfd_data.get("outlet_velocity", {}).get("magnitude", None)
-
-        # If the CFD results included a pressure_drop, convert to Pa + kPa
-        if "pressure_drop" in cfd_data and cfd_data["pressure_drop"] is not None:
-            pressure_drop_pa = cfd_data["pressure_drop"]  # in Pa
-            pressure_drop_kpa = pressure_drop_pa / 1000.0
+        inlet_velocity = (cfd_data.get("inlet_velocity") or {}).get("magnitude")
+        outlet_velocity = (cfd_data.get("outlet_velocity") or {}).get("magnitude")
+        pressure_drop_pa = (cfd_data or {}).get("pressure_drop")
+        pressure_drop_kpa = pressure_drop_pa / 1000.0 if pressure_drop_pa else None
 
     # Default the date if not specified
     if not date_of_report:
@@ -117,8 +115,8 @@ def generate_airway_report(
         c.setFont("Helvetica", 12)
 
         # Prepare strings
-        airway_volume_str = f"{airway_volume}" if airway_volume else "Not calculated"
-        min_csa_str = f"{min_csa}" if min_csa else "Not calculated"
+        airway_volume_str = f"{airway_volume:.2f}" if airway_volume else "Not calculated"
+        min_csa_str = f"{min_csa:.2f}" if min_csa else "Not calculated"
         press_drop_pa_str = "Not calculated"
         press_drop_kpa_str = "N/A"
         if pressure_drop_pa is not None:
@@ -133,7 +131,7 @@ def generate_airway_report(
 
         # Draw them
         c.drawString(70, y_position - 20, f"Airway Volume: {airway_volume_str}")
-        c.drawString(70, y_position - 35, f"Minimum Cross-Sectional Area: {min_csa_str} mm² (approximate)") ##TODO: Remove the approximate label when using final min CSA function
+        c.drawString(70, y_position - 35, f"Minimum Cross-Sectional Area: {min_csa_str} mm² (rough estimate)") ##TODO: Remove the approximate label when using final min CSA function
         c.drawString(70, y_position - 50, f"Pressure Drop: {press_drop_kpa_str} kPa ({press_drop_pa_str} Pa)")
         if inlet_velocity is not None:
             c.drawString(70, y_position - 65, f"Inlet Velocity: {inlet_velocity:.3f} m/s")

@@ -1,4 +1,4 @@
-#  Application for the Nasal and Oropharyngeal Segmentation and Simulation of Airflow
+# Nasal and Oropharyngeal Segmentation and Simulation of Airflow Application
 
 A comprehensive graphical user interface designed for medical professionals to perform automated upper airway segmentation and computational fluid dynamics (CFD) simulations starting from CT or CBCT scans. This tool streamlines the workflow from image processing to final report generation.
 

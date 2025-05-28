@@ -1,6 +1,6 @@
-# Medical Imaging Analysis & CFD Simulation GUI
+#  Application for the Nasal and Oropharyngeal Segmentation and Simulation of Airflow
 
-A comprehensive graphical user interface designed for medical professionals to perform automated airway segmentation and computational fluid dynamics (CFD) simulations. This tool streamlines the workflow from image processing to final report generation.
+A comprehensive graphical user interface designed for medical professionals to perform automated upper airway segmentation and computational fluid dynamics (CFD) simulations starting from CT or CBCT scans. This tool streamlines the workflow from image processing to final report generation.
 
 <!-- TODO: Add a project logo or header image here -->
 ![Project Logo](path/to/logo.png)
@@ -37,12 +37,11 @@ If you use {AppName} for your work, please cite:
 
 ### Hardware Specifications
 <!-- TODO: Specify hardware recommendations -->
-- Recommended RAM: [TK recommended RAM]
-- Processor: [TK processor details]
-- GPU: [TK GPU requirements]
+- Recommended RAM: 32 GB
+- GPU: NVIDIA processor
 
 ## Software Installation Scripts
-If starting from a fresh OpenSUSE installation, you can run the following script to set up all necessary software:
+If starting from a fresh OpenSUSE installation, you can run the following scripts to set up all necessary software:
 
 <!-- TODO: Review what packages to install -->
 [Script still needs to be written]

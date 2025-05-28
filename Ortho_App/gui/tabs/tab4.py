@@ -72,15 +72,19 @@ class Tab4Manager:
         return var.get() if var else ""
         
     def create_tab(self):
-        """Create and set up the analysis and processing page"""
+        # Create the main tab/frame
+        self.tab = ctk.CTkFrame(self.app.main_frame)
+        self.tab.pack(fill="both", expand=True)
+        
+        # Then create other elements INSIDE self.tab
         self._create_header()
         self._create_main_content()
         self._create_navigation()
 
     def _create_header(self):
         """Create the header with home button and context information with shading"""
-        # Top frame with light shading
-        top_frame = ctk.CTkFrame(self.app.main_frame, corner_radius=10, fg_color="transparent")
+        # Change parent from self.app.main_frame to self.tab
+        top_frame = ctk.CTkFrame(self.tab, corner_radius=10, fg_color="transparent")
         top_frame.pack(fill="x", pady=(5, 10), padx=20)
         
         # Configure grid layout
@@ -116,8 +120,27 @@ class Tab4Manager:
             "Are you sure you want to shut down the computer?"
         ):
             self.logger.log_info("User confirmed shutdown")
-            # on Linux; on Windows you might use "shutdown /s /t 0"
-            os.system("shutdown now")
+            # First cancel any ongoing processes
+            if hasattr(self, 'progress_section') and self.progress_section._cancel_callback_func:
+                self.progress_section._cancel_callback_func()
+            # Clean up
+            self._cleanup_before_shutdown()
+            os.system("sudo /sbin/poweroff")
+
+    def _cleanup_before_shutdown(self):
+        """Perform cleanup operations before shutdown."""
+        # Log the action
+        self.logger.log_info("Cleaning up before shutdown")
+        # Sync disk
+        subprocess.call(["sync"])
+        # Kill processes
+        for p in ["nnUNet", "blender", "paraview", "python", "snappyHexMesh", "simpleFoam"]:
+            try:
+                subprocess.call(["killall", "-f", p])
+            except:
+                pass
+        # Final sync
+        subprocess.call(["sync"])
     
     def _confirm_restart(self):
         """Ask the user – then reboot."""
@@ -127,23 +150,20 @@ class Tab4Manager:
         ):
             self.logger.log_info("User confirmed restart")
             # on Linux; on Windows you might use "shutdown /r /t 0"
+            self._cleanup_before_shutdown()
             os.system("reboot")
     
     def _create_navigation(self):
         """Create navigation with only a Back button in the style of NavigationFrame"""
-        # Use the NavigationFrame class instead of creating custom frames
+        # Create navigation frame as a direct child of self.tab
         self.nav_frame = NavigationFrame2(
-            self.app.main_frame,
-            previous_label="Review and Confirm",
-            next_label="",  # Empty label for next (won't display)
-            back_command=self._confirm_back,
+            parent=self.tab,
+            previous_label="Patient Info Review",
+            back_command=self._confirm_back
         )
-
-        # Add Shutdown/Restart button manually
-        self.nav_frame.add_shutdown_restart_button(
-            shutdown_cmd=self._confirm_shutdown,
-            restart_cmd=self._confirm_restart
-        )
+        
+        # Use NavigationFrame2's built-in methods 
+        self.nav_frame.add_shutdown_restart_buttons()
 
     def _confirm_back(self):
         """Prompt the user for confirmation before going back if analysis data exists."""
@@ -188,7 +208,7 @@ class Tab4Manager:
     def _create_main_content(self):
         """Create the main content area with analysis options on the left and results on the right."""
         # Create main content frame using grid layout with shading
-        content_frame = ctk.CTkFrame(self.app.main_frame, corner_radius=10)
+        content_frame = ctk.CTkFrame(self.tab, corner_radius=10)
         content_frame.pack(fill="both", expand=True, padx=20, pady=(5, 0))
 
         # Create left and right frames
@@ -2516,8 +2536,7 @@ class Tab4Manager:
             if not has_results and has_timesteps:
                 self.logger.log_info("Sim appears done (found time‑step dirs), generating cut‑planes now")
                 success = self._run_paraview(cfd_path)
-                # Run ParaView script to generate images
-                success = self._run_paraview(cfd_path)
+                self.autocrop_whitespace(cfd_path)
                 if not success:
                     self.logger.log_warning("Failed to generate CFD visualization images")
                     messagebox.showwarning(
@@ -2875,7 +2894,12 @@ class Tab4Manager:
                 mesh.compute_vertex_normals()
 
                 # Initialize the GUI (only call once per process)
-                app = gui.Applica
+                app = gui.Application.instance
+                app.initialize()
+
+                # 2. Load mesh
+                mesh = io.read_triangle_mesh(stl_path)
+                mesh.compute_vertex_normals()
 
                 vis = o3d.visualization.Visualizer()
                 vis.create_window(window_name="Interactive STL Viewer", width=800, height=600)
@@ -2910,6 +2934,7 @@ class Tab4Manager:
         except Exception as e:
             tk.messagebox.showerror("Error", f"Failed to display interactive STL viewer:\n{e}")
 
+   
     # ----------------------------------------------------------------------
     ######## RESULTS REPORT AND DATA EXPORT RELATED METHODS ################
     # ----------------------------------------------------------------------
@@ -3085,7 +3110,7 @@ class Tab4Manager:
         # create & show the saving dialog
         save_dialog = ctk.CTkToplevel(self.app)
         save_dialog.title("Saving Results")
-        save_dialog.geometry("300x100")
+        save_dialog.geometry("400x150")
         save_dialog.transient(self.app)
 
         ctk.CTkLabel(save_dialog, text="Saving to external drive…\nThis may take a few minutes.").pack(pady=(20,5))
@@ -3102,25 +3127,47 @@ class Tab4Manager:
             # if it still fails, we’ll just let it run modeless
             pass
 
+        cancel_event = threading.Event()
+
+        # 1) add cancel button
+        cancel_event = threading.Event()
+        def on_cancel():
+            cancel_event.set()
+            pb.stop()
+            btn_cancel.configure(state="disabled", text="Cancelling…")
+
+        btn_cancel = ctk.CTkButton(
+            save_dialog,
+            text="Cancel",
+            command=on_cancel
+        )
+        btn_cancel.pack(side="bottom", pady=(0, 10))
+
         def _do_copy():
             try:
                 os.makedirs(target, exist_ok=True)
 
-                # segmentation‑only
+                # segmentation only
                 if self.analysis_option.get() == "Upper Airway Segmentation":
                     for name in os.listdir(src):
+                        if cancel_event.is_set():
+                            raise RuntimeError("User cancelled save")
                         if name.startswith("CFD_"):
                             continue
                         s = os.path.join(src, name)
                         d = os.path.join(target, name)
                         if os.path.isdir(s):
-                            shutil.copytree(s, d, dirs_exist_ok=True)
+                            ok = self._copy_dir_with_cancel(s, d, cancel_event)
+                            if not ok:
+                                raise RuntimeError("User cancelled save")
                         else:
+                            if cancel_event.is_set():
+                                raise RuntimeError("User cancelled save")
                             shutil.copy2(s, d)
 
                     self.app.after(0, lambda: tk.messagebox.showinfo(
-                        "Success",
-                        f"Segmentation results saved to:\n{target}"
+                        "Cancelled" if cancel_event.is_set() else "Success",
+                        f"{'Save cancelled' if cancel_event.is_set() else 'Segmentation results saved to:'}\n{target}"
                     ))
                     return
 
@@ -3155,31 +3202,65 @@ class Tab4Manager:
                         min_csa=self.min_csa
                     )
 
-                # copy everything (including the newly created PDF)
+                    if cancel_event.is_set():
+                        raise RuntimeError("User cancelled save")
+
+                # copy everything
                 for name in os.listdir(src):
+                    if cancel_event.is_set():
+                        raise RuntimeError("User cancelled save")
                     s = os.path.join(src, name)
                     d = os.path.join(target, name)
                     if os.path.isdir(s):
-                        shutil.copytree(s, d, dirs_exist_ok=True)
+                        ok = self._copy_dir_with_cancel(s, d, cancel_event)
+                        if not ok:
+                            raise RuntimeError("User cancelled save")
                     else:
+                        if cancel_event.is_set():
+                            raise RuntimeError("User cancelled save")
                         shutil.copy2(s, d)
 
-                self.app.after(0, lambda: tk.messagebox.showinfo(
-                    "Success",
-                    f"All results & report saved to:\n{target}"
-                ))
+                if not cancel_event.is_set():
+                    self.app.after(0, lambda: tk.messagebox.showinfo(
+                        "Success",
+                        f"All results & report saved to:\n{target}"
+                    ))
 
             except Exception as e:
-                # capture e in the lambda’s default so it’s in scope
-                self.app.after(0, lambda e=e: messagebox.showerror(
-                    "Error", f"Failed to save results to drive:\n{e}"
-                ))
+                # If it was our cancellation, show a friendly message
+                msg = "Save aborted by user." if cancel_event.is_set() else f"Failed to save: {e}"
+                self.app.after(0, lambda: messagebox.showerror("Error", msg))
             finally:
-                # tear down the saving dialog on the main thread
+                # always tear down the dialog
                 self.app.after(0, save_dialog.destroy)
 
-        # do the heavy work on a background thread
         threading.Thread(target=_do_copy, daemon=True).start()
+    
+    def _copy_dir_with_cancel(self, src_dir, dst_dir, cancel_event):
+        """
+        Recursively copy src_dir → dst_dir, but before each file
+        copy check if cancel_event.is_set(); if so, abort and return False.
+        """
+        for root, dirs, files in os.walk(src_dir):
+            if cancel_event.is_set():
+                return False
+            # Recreate directory structure
+            rel = os.path.relpath(root, src_dir)
+            target_root = os.path.join(dst_dir, rel)
+            os.makedirs(target_root, exist_ok=True)
+            for fname in files:
+                if cancel_event.is_set():
+                    return False
+                src_f = os.path.join(root, fname)
+                dst_f = os.path.join(target_root, fname)
+                try:
+                    shutil.copy2(src_f, dst_f)
+                except Exception:
+                    # you might want to log or surface some errors here
+                    return False
+        return True
+    
+
     
     def _delete_cancelled_files(self):
         """

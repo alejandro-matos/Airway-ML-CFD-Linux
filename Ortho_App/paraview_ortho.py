@@ -132,7 +132,7 @@ clip1.HyperTreeGridClipper = 'Plane'
 clip1.Scalars = ['POINTS', 'p']
 clip1.Value = 24.54
 clip1.HyperTreeGridClipper.Origin = [0.039, 0.0468, 0.05385]
-clip1.ClipType.Origin = [0.0364, 0.0468, 0.0538]
+clip1.ClipType.Origin = [0.0374, 0.0468, 0.0538]
 renderView1.Update()
 clip1Display = Show(clip1, renderView1, 'UnstructuredGridRepresentation')
 Hide(casefoam, renderView1)
@@ -165,7 +165,7 @@ clip1.Scalars = ['POINTS','p']
 Hide(casefoam, renderView1)
 
 # — LEFT nostril —
-clip1.ClipType.Origin = [0.04306, 0.0468, 0.05385]    # left‐nostril plane
+clip1.ClipType.Origin = [0.045, 0.045, 0.05385]    # left‐nostril plane
 clip1.ClipType.Normal = [1,0,0]                       # slice normal
 clip1.UpdatePipeline()
 clipDisp = Show(clip1, renderView1)

@@ -79,6 +79,22 @@ def generate_airway_report(
         width, height = letter
         c.setTitle("Upper Airway Analysis Report")
 
+        # ensure numeric types for formatting
+        try:
+            flow_rate_val = float(flow_rate_val)
+        except (TypeError, ValueError):
+            flow_rate_val = 0.0
+
+        try:
+            airway_volume = float(airway_volume) if airway_volume is not None else None
+        except (TypeError, ValueError):
+            airway_volume = None
+
+        try:
+            min_csa = float(min_csa) if min_csa is not None else None
+        except (TypeError, ValueError):
+            min_csa = None
+
         #
         # ---------------- PAGE 1 ----------------
         #

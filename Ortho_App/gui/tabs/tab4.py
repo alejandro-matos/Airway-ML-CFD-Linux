@@ -20,12 +20,11 @@ import math
 import shutil
 import vtk
 import tempfile
-import fitz  # PyMuPDF
+import fitz
 import getpass
 import glob
 import re
 import signal
-
 
 from ..components.navigation import NavigationFrame2
 from ..components.progress import ProgressSection
@@ -35,8 +34,11 @@ from ..components.buttons import _create_info_button
 
 from ..utils.segmentation import AirwaySegmentator
 from ..utils.generate_airway_report import generate_airway_report
-from gui.utils.basic_utils import AppLogger
-from gui.utils.icons import create_icon, load_ctk_icon
+from ..utils.basic_utils import AppLogger
+from ..utils.icons import create_icon, load_ctk_icon
+from ..utils.open3d_viewer import Open3DViewer
+from ..utils.blender_processor import BlenderProcessor
+from ..utils.stl_assem_image_render import render_assembly
 
 from gui.config.settings import UI_SETTINGS, TAB4_UI, TAB4_SETTINGS, PATH_SETTINGS
 
@@ -51,8 +53,13 @@ class Tab4Manager:
         self.cancel_requested = False
         self.current_process = None
         self.min_csa = None
-
         self.flow_rate = ctk.DoubleVar(value=10)
+        self.viewer = Open3DViewer(logger=self.logger)
+        self.blender_processor = BlenderProcessor(
+            logger=self.logger,
+            progress_callback=self.update_progress,
+            cancel_check_callback=lambda: self.cancel_requested
+        )
 
         # Add a cancellation flag that threads can check
         self.cancel_requested = False
@@ -1085,7 +1092,7 @@ class Tab4Manager:
             messagebox.showerror("Error", f"Failed to start processing:\n{str(e)}")
 
     def _handle_existing_segmentation_for_cfd(self):
-        """Handle workflow when using existing segmentation for CFD simulation"""
+        """Handle workflow when using existing segmentation for CFD simulation - updated"""
         try:
             # Start the processing UI
             self.processing_active = True
@@ -1148,33 +1155,17 @@ class Tab4Manager:
             # Select segmentation tab to show loaded data
             self._select_tab("Segmentation")
             
-            # Proceed directly to Blender stage for CFD processing
+            # Proceed directly to Blender stage for CFD processing using the new processor
             self.update_progress("Creating inlet and outlet in Blender…", 50, "Creating inlet and outlet in Blender…")
             
             # Set up a CFD output directory based on flow rate
             cfd_output_dir = str(self._get_full_cfd_path())
             
-            # Prepare arguments for Blender
-            blender_args = {
-                "stl_path": self.current_stl_path,
-                "cfd_output_dir": cfd_output_dir
-            }
-            
             # Reset cancellation flag before starting Blender
             self.cancel_requested = False
             
-            # Create & apply a proper cancellation handler
-            blender_cancel = self._create_unified_cancel_handler(processor=None)
-            self.progress_section.set_cancel_callback(blender_cancel)
-            self.progress_section.cancel_button.configure(state="normal")
-            
-            # Start the Blender process in a new thread
-            self.processing_thread = threading.Thread(
-                target=self._blender_worker,
-                args=(blender_args,),
-                daemon=True
-            )
-            self.processing_thread.start()
+            # Use the new Blender processor instead of the old worker method
+            self._start_blender_processing(self.current_stl_path, cfd_output_dir)
             
         except Exception as e:
             error_msg = f"Error using existing segmentation: {str(e)}"
@@ -1305,7 +1296,7 @@ class Tab4Manager:
 
     
     def _handle_processing_completion(self, success, results):
-        """Handle completion of processing"""
+        """Handle completion of processing - updated to use new Blender processor"""
         self._refresh_patient_info()
         try:
             if not success:
@@ -1377,28 +1368,9 @@ class Tab4Manager:
                     indeterminate=True
                 )
 
-                # Cancel handler
-                blender_cancel = self._create_unified_cancel_handler(processor=None)
-                self.progress_section.set_cancel_callback(blender_cancel)
-                self.progress_section.cancel_button.configure(state="normal")
-
-                # launch Blender in a background thread
-                self.update_progress("Creating inlet and outlet in Blender…", 50, "Creating inlet and outlet in Blender…")
-                blender_args = {
-                    "stl_path": results['stl_path']['stl_path'],
-                    "cfd_output_dir": str(self._get_full_cfd_path())
-                }
-
-                # Reset cancellation flag
-                self.cancel_requested = False
-                
-                # Start the Blender process
-                self.processing_thread = threading.Thread(
-                    target=self._blender_worker,
-                    args=(blender_args,),
-                    daemon=True
-                )
-                self.processing_thread.start()
+                # Use the new Blender processor instead of the old method
+                cfd_output_dir = str(self._get_full_cfd_path())
+                self._start_blender_processing(stl_path, cfd_output_dir)
             
             else:
                 # Segmentation only - just finalize and show message
@@ -1485,7 +1457,7 @@ class Tab4Manager:
             # Track cleanup information
             cleanup_info = None
 
-            # Processor-specific cancellation
+            # Processor-specific cancellation (for segmentation)
             if processor is not None:
                 if hasattr(processor, 'cancel_event'):
                     processor.cancel_event.set()
@@ -1497,6 +1469,10 @@ class Tab4Manager:
                     # Log the returned info if any
                     if cleanup_info:
                         self.logger.log_info(f"Received cleanup info: {cleanup_info}")
+            
+            # Cancel Blender processor if it's running
+            if hasattr(self, 'blender_processor'):
+                self.blender_processor.request_cancel()
             
             # Terminate any active subprocess
             if hasattr(self, 'current_process') and self.current_process and self.current_process.poll() is None:
@@ -1540,7 +1516,7 @@ class Tab4Manager:
                     self.scheduled_updates = []
             
             # Schedule file cleanup with direct folder information from the processor
-            self.app.after(500, lambda: self._delete_cancelled_files_with_info(cleanup_info))
+            self.app.after(500, lambda: self._delete_cancelled_files(cleanup_info))
                     
             return True  # Return True to indicate successful cancellation request
         
@@ -1818,213 +1794,75 @@ class Tab4Manager:
     # ================================= BLENDER METHODS ==================================================================
     # ====================================================================================================================
 
-    def _blender_worker(self, args):
+    def _start_blender_processing(self, stl_path, cfd_output_dir):
+        """Start Blender processing using the modular processor"""
         try:
-            # Enable cancel button before starting Blender
-            self.app.after(0, lambda: self.progress_section.set_cancel_callback(self._request_cancel))
+            # Set up cancellation callback for the progress section
+            self.progress_section.set_cancel_callback(self._request_cancel)
             
-            # Create required directories before running Blender
-            trisurf_dir = os.path.join(args["cfd_output_dir"], "constant", "triSurface")
-            os.makedirs(trisurf_dir, exist_ok=True)
-            
-            # Write the input files for Blender
-            with open("sdir.txt", "w") as f:
-                f.write(args["cfd_output_dir"])
-            
-            with open("geo_in.txt", "w") as f:
-                f.write(args["stl_path"])
-
-            # Get the root dir of the project
-            project_root = Path(__file__).resolve().parents[2]
-            source_dir = project_root / "data" / "Master_cfd_file"
-            shutil.copytree(source_dir, args["cfd_output_dir"], symlinks=False, ignore=None, 
-                                ignore_dangling_symlinks=False, dirs_exist_ok=True)
-            
-            self.logger.log_info(f"Starting Blender with STL path: {args['stl_path']}")
-            self.logger.log_info(f"Output directory: {trisurf_dir}")
-
-            blender_dir = project_root / "blender_ortho.py"
-            
-            # Store the process reference in self.current_process
-            self.current_process = subprocess.Popen(
-                ["blender", "--background", "--python", blender_dir],
-                stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                universal_newlines=True
-            )
-            
-            # Process output in real-time
-            while self.current_process.poll() is None:
-                # Check if cancellation was requested
+            def on_blender_complete(result):
+                """Handle Blender processing completion"""
                 if self.cancel_requested:
-                    self.current_process.terminate()
-                    self.app.after(0, lambda: self.progress_section.stop("Processing cancelled"))
-                    self.app.after(0, self._on_sim_cancelled)
+                    self.logger.log_info("Blender processing was cancelled")
                     return
                     
-                line = self.current_process.stdout.readline()
-                if line:
-                    self.logger.log_info(f"Blender: {line.strip()}")
+                if not result["success"]:
+                    self.app.after(0, lambda: messagebox.showerror("Blender Error", result["error_message"]))
+                    self.app.after(0, self._reset_processing_state)
+                    return
+                
+                # Processing successful - proceed to next steps
+                self.app.after(0, lambda: self._on_blender_success(result, cfd_output_dir))
             
-            stdout, stderr = self.current_process.communicate()
-            code = self.current_process.returncode
+            # Start async processing with render callback
+            self.blender_processor.process_geometry_async(
+                stl_path=stl_path,
+                cfd_output_dir=cfd_output_dir,
+                completion_callback=on_blender_complete,
+                render_callback=self._render_assembly_image
+            )
             
-            # Only proceed if not cancelled
-            if not self.cancel_requested:
-                self.app.after(0, lambda: self._on_blender_done(code, stdout, stderr, args))
         except Exception as e:
-            self.logger.log_error(f"Blender worker error: {e}")
-            # capture `e` as a default so it's available when the lambda runs
-            self.app.after(0, lambda e=e: self._on_worker_error("Blender", e))
-
-
-    def _check_blender_files(self, returncode, stdout, stderr, args):
-        """Check if necessary files exist before proceeding"""
-        # Check if process was cancelled
-        if self.cancel_requested or self.progress_section.is_cancellation_in_progress():
-            self.app.after(0, lambda: self.progress_section.stop("Processing cancelled"))
-            self.app.after(0, lambda: self._reset_processing_state())
-            return
+            self.logger.log_error(f"Error starting Blender processing: {e}")
+            messagebox.showerror("Error", f"Failed to start Blender processing: {e}")
+            self._reset_processing_state()
+    
+    def _on_blender_success(self, result, cfd_output_dir):
+        """Handle successful Blender processing"""
+        try:
+            # Update UI with assembly image if available
+            if "assembly_image_path" in result:
+                self._update_render_display("postprocessing", result["assembly_image_path"])
+                self._select_tab("Post-processed Geometry")
             
-        if returncode != 0:
-            messagebox.showerror("Blender Error", stderr if stderr else "Unknown error occurred")
-            self.app.after(0, lambda: self._reset_processing_state())
-            return
-            
-        # Check if required STL files exist
-        inlet_path = os.path.join(args["cfd_output_dir"], "constant", "triSurface", "inlet.stl")
-        outlet_path = os.path.join(args["cfd_output_dir"], "constant", "triSurface", "outlet.stl")
-        wall_path = os.path.join(args["cfd_output_dir"], "constant", "triSurface", "wall.stl")
-        
-        self.logger.log_info(f"Checking for STL files: {inlet_path}, {outlet_path}, {wall_path}")
-        
-        files_exist = os.path.exists(inlet_path) and os.path.exists(outlet_path) and os.path.exists(wall_path)
-        
-        if not files_exist:
-            # Check if cancelled before scheduling another check
-            if self.cancel_requested or self.progress_section.is_cancellation_in_progress():
-                self.app.after(0, lambda: self.progress_section.stop("Processing cancelled"))
-                self.app.after(0, lambda: self._reset_processing_state())
+            # Check if cancellation was requested during UI updates
+            if self.cancel_requested:
+                self.logger.log_info("Process cancelled after Blender completion")
                 return
-                
-            # Files don't exist yet, wait a bit longer before checking again (500ms)
-            self.logger.log_info("STL files not ready yet, checking again in 500ms")
-            self.app.after(500, lambda: self._check_blender_files(returncode, stdout, stderr, args))
-            return
-        
-        # Check if cancelled before proceeding to rendering
-        if self.cancel_requested or self.progress_section.is_cancellation_in_progress():
-            self.app.after(0, lambda: self.progress_section.stop("Processing cancelled"))
-            self.app.after(0, lambda: self._reset_processing_state())
-            return
             
-        self.logger.log_info("All STL files found, proceeding to render assembly image")
-        
-        # Now that files exist, proceed with rendering assembly
-        preview = self._render_assembly_image(inlet_path, outlet_path, wall_path, args["cfd_output_dir"])
-        
-        # Check cancellation again after rendering
-        if self.cancel_requested or self.progress_section.is_cancellation_in_progress():
-            self.app.after(0, lambda: self.progress_section.stop("Processing cancelled"))
-            self.app.after(0, lambda: self._reset_processing_state())
-            return
-        
-        if preview and os.path.exists(preview):
-            self.logger.log_info(f"Assembly image created: {preview}")
-            # Update UI with the preview image
-            self._update_render_display("postprocessing", preview)
-            self._select_tab("Post-processed Geometry")
-            
-            # Check if cancelled before proceeding to CFD
-            if self.cancel_requested or self.progress_section.is_cancellation_in_progress():
-                self.app.after(0, lambda: self.progress_section.stop("Processing cancelled"))
-                self.app.after(0, lambda: self._reset_processing_state())
-                return
-                
-            # Now proceed to CFD simulation
+            # Start CFD simulation
             self.logger.log_info("Starting CFD simulation...")
             self.cancel_requested = False
             self.processing_active = True
-            self.update_progress(
-                "Running CFD simulation…",
-                75,
-                "Running CFD simulation…"
-            )
             
-            # Cancellation for CFD
+            self.update_progress("Running CFD simulation…", 85)
+            
+            # Set up cancellation for CFD
             self.progress_section.set_cancel_callback(
                 self._create_unified_cancel_handler()
             )
             
+            # Start CFD processing
             threading.Thread(
                 target=self._cfd_worker,
-                args=(args["cfd_output_dir"],),
+                args=(cfd_output_dir,),
                 daemon=True
             ).start()
-        else:
-            self.logger.log_error("Failed to generate assembly image")
-            messagebox.showerror("Error", "Failed to generate geometry preview image")
-            self.app.after(0, lambda: self._reset_processing_state())
-    
-    def _on_blender_done(self, returncode, stdout, stderr, args):
-        """Handle completion of Blender processing and start CFD simulation"""
-        # Check if cancellation was requested during Blender processing
-        if self.cancel_requested:
-            self.logger.log_info("Blender processing was cancelled, not proceeding to CFD")
-            return
-            
-        # Handle Blender errors
-        if returncode != 0:
-            messagebox.showerror("Blender Error", stderr)
-            self.process_button.configure(state="normal")
-            self._reset_processing_state()
-            return
-            
-        try:
-            # 1. Render the preview image
-            preview = self._render_assembly_image(
-                os.path.join(args["cfd_output_dir"], "constant", "triSurface", "inlet.stl"),
-                os.path.join(args["cfd_output_dir"], "constant", "triSurface", "outlet.stl"),
-                os.path.join(args["cfd_output_dir"], "constant", "triSurface", "wall.stl"),
-                args["cfd_output_dir"]
-            )
-            
-            # Check again for cancellation after rendering
-            if self.cancel_requested:
-                self.logger.log_info("Process cancelled after Blender assembly rendering")
-                return
-                
-            # 2. Show it on the "Post-processed Geometry" tab
-            self._update_render_display("postprocessing", preview)
-            
-            # Now that Blender processing is done, we can enable the Post-processed tab
-            self._select_tab("Post-processed Geometry")
-            
-            # 3. Now kick off the CFD thread immediately (no extra user click)
-            # Reset cancellation flag before starting new process
-            self.cancel_requested = False
-            self.processing_active = True
-            
-            # Update progress for user feedback
-            self.update_progress("Running CFD simulation…", 85)
-
-            # Make sure the progress section's cancel button is enabled
-            self.progress_section.set_cancel_callback(self._request_cancel)
-
-            # Start CFD processing in a separate thread
-            cfd_thread = threading.Thread(
-                target=self._cfd_worker,
-                args=(args["cfd_output_dir"],),
-                daemon=True
-            )
-            cfd_thread.start()
             
         except Exception as e:
-            # Handle any exceptions during this transition phase
             error_message = f"Error after Blender processing: {str(e)}"
             self.logger.log_error(error_message)
             messagebox.showerror("Error", error_message)
-            
-            # Reset processing state
             self._reset_processing_state()
 
 
@@ -2047,7 +1885,6 @@ class Tab4Manager:
         # Add CFD_ suffix
         cfd_dir = f"CFD_{flow_dir}"
         
-        # Base path where CFD results are stored
         # Get base path from the application's current patient folder
         if hasattr(self.app, 'full_folder_path') and self.app.full_folder_path:
             # Use the parent directory of the current patient folder
@@ -2170,7 +2007,6 @@ class Tab4Manager:
                 self.logger.log_error(msg)
                 self.app.after(0, lambda: self._on_worker_error("Simulation", msg))
 
-    
     def _on_sim_done(self, cfd_dir):
         """Process and visualize CFD results after simulation completes."""
         try:
@@ -2212,10 +2048,7 @@ class Tab4Manager:
             self.process_button.configure(state="normal")
     
     def _run_paraview(self, cfd_dir):
-        """
-        Simple function to run paraview_ortho.py to generate visualization images.
-        Assumes sdir.txt already exists with correct content.
-        """
+        """Simple function to run paraview_ortho.py to generate visualization images."""
         try:
             # 1. Verify case.foam exists
             case_foam_path = os.path.join(cfd_dir, "case.foam")
@@ -2268,8 +2101,6 @@ class Tab4Manager:
             
             return True
             
-            
-
         except Exception as e:
             self.logger.log_error(f"Error running ParaView: {str(e)}")
             return False
@@ -2313,10 +2144,7 @@ class Tab4Manager:
         self._reset_processing_state()
 
     def _cfd_results_exist(self, flow_rate=None):
-        """
-        Check if CFD results already exist (case.foam),
-        or if segmentation has already been done (.stl in stl/).
-        """
+        """Check if CFD results already exist (case.foam), or if segmentation has already been done (.stl in stl/)."""
         cfd_path = self._get_full_cfd_path(flow_rate)
 
         # 1) Segmentation AND CFD done?
@@ -2744,7 +2572,7 @@ class Tab4Manager:
         print(f"Pruned CFD folder; only case.foam, *_CFD.png, and triSurface remain in {cfd_dir}")
 
     # ==========================================================
-    ###### IMAGE RENDER AND INTERACTIVE 3D MODEL METHODS #######
+    ###### IMAGE RENDER METHODS #######
     # ==========================================================
     def _get_patient_initials(self, name):
         # Extract initials from the full patient's name and gives the patient initials as a string. 
@@ -2773,8 +2601,6 @@ class Tab4Manager:
         in the directory where it was created.
         """
         try:
-            from gui.utils.stl_assem_image_render import render_assembly
-
             inlet_path = str(inlet_path)
             outlet_path = str(outlet_path)
             wall_path = str(wall_path)
@@ -2818,123 +2644,28 @@ class Tab4Manager:
         except Exception as e:
             self.logger.log_error(f"Error in assembly rendering: {e}")
             return None
-        
-    
-    def _interactive_blender_results(self):
-        """
-        Launch an interactive viewer for the inlet, outlet, and wall components
-        with color coding.
-        """
-        try:
-            def view_components():
-                base_path = os.path.join(str(self._get_full_cfd_path()), "constant", "triSurface")
-
-                # Load inlet (green)
-                inlet_path = os.path.join(base_path, "inlet.stl")
-                inlet_mesh = o3d.io.read_triangle_mesh(inlet_path)
-                inlet_mesh.compute_vertex_normals()
-                inlet_mesh.paint_uniform_color([0, 1, 0])
-
-                # Load outlet (red)
-                outlet_path = os.path.join(base_path, "outlet.stl")
-                outlet_mesh = o3d.io.read_triangle_mesh(outlet_path)
-                outlet_mesh.compute_vertex_normals()
-                outlet_mesh.paint_uniform_color([1, 0, 0])
-
-                # Load wall (gray)
-                wall_path = os.path.join(base_path, "wall.stl")
-                wall_mesh = o3d.io.read_triangle_mesh(wall_path)
-                wall_mesh.compute_vertex_normals()
-                wall_mesh.paint_uniform_color([0.7, 0.7, 0.7])
-
-                # Create visualization window
-                vis = o3d.visualization.Visualizer()
-                vis.create_window(window_name="Airway Components Viewer", width=700, height=450)
-
-                vis.add_geometry(inlet_mesh)
-                vis.add_geometry(outlet_mesh)
-                vis.add_geometry(wall_mesh)
-
-                render_option = vis.get_render_option()
-                render_option.background_color = [1, 1, 1]
-                render_option.point_size = 1.0
-                render_option.show_coordinate_frame = False
-
-                view_control = vis.get_view_control()
-                view_control.set_zoom(0.8)
-
-                # Wait briefly to allow window to appear
-                time.sleep(1.5)
-
-                # Force window to stay on top using wmctrl
-                try:
-                    subprocess.run([
-                        "wmctrl", "-r", "Airway Components Viewer", "-b", "add,above"
-                    ], check=True)
-                except Exception as e:
-                    print(f"Failed to set always-on-top: {e}")
-
-                vis.run()
-                vis.destroy_window()
-            
-            # Start in a separate thread
-            threading.Thread(target=view_components, daemon=True).start()
-                
-        except Exception as e:
-            tk.messagebox.showerror("Error", f"Failed to display component viewer:\n{e}")
     
     def _interactive_segmentation(self, stl_path):
         """
-        Launch an interactive STL viewer for the given STL file
+        Launch an interactive STL viewer using the Open3D viewer module
         """
         try:
-            def view_mesh():
-                # Load mesh
-                mesh = o3d.io.read_triangle_mesh(stl_path)
-                mesh.compute_vertex_normals()
-
-                # Initialize the GUI (only call once per process)
-                app = gui.Application.instance
-                app.initialize()
-
-                # 2. Load mesh
-                mesh = io.read_triangle_mesh(stl_path)
-                mesh.compute_vertex_normals()
-
-                vis = o3d.visualization.Visualizer()
-                vis.create_window(window_name="Interactive STL Viewer", width=800, height=600)
-                vis.add_geometry(mesh)
-
-                render_option = vis.get_render_option()
-                render_option.background_color = [1, 1, 1]
-                render_option.point_size = 1.0
-                render_option.show_coordinate_frame = False
-
-                view_control = vis.get_view_control()
-                view_control.set_zoom(0.8)
-
-                # Delay to let the window fully initialize
-                time.sleep(1.5)
-
-                # Use wmctrl to set the window to always stay on top
-                try:
-                    subprocess.run([
-                        "wmctrl", "-r", "Interactive STL Viewer", "-b", "add,above"
-                    ], check=True)
-                except Exception as e:
-                    print(f"Failed to set always-on-top: {e}")
-
-                vis.run()
-                vis.destroy_window()
-            # Start the viewer in a daemon thread so it doesn't block the main GUI.
-            threading.Thread(target=view_mesh, daemon=True).start()
-            
-        except ImportError:
-            tk.messagebox.showerror("Error", "3D visualization requires the open3d library. Please install it with 'pip install open3d'.")
+            self.viewer.view_stl_file(stl_path)
         except Exception as e:
-            tk.messagebox.showerror("Error", f"Failed to display interactive STL viewer:\n{e}")
+            self.logger.log_error(f"Failed to launch STL viewer: {e}")
+            tk.messagebox.showerror("Error", f"Failed to display STL viewer:\n{e}")
 
-   
+    def _interactive_blender_results(self):
+        """
+        Launch an interactive viewer for airway components using the Open3D viewer module
+        """
+        try:
+            cfd_base_path = str(self._get_full_cfd_path())
+            self.viewer.view_airway_components(cfd_base_path)
+        except Exception as e:
+            self.logger.log_error(f"Failed to launch component viewer: {e}")
+            tk.messagebox.showerror("Error", f"Failed to display component viewer:\n{e}")
+
     # ----------------------------------------------------------------------
     ######## RESULTS REPORT AND DATA EXPORT RELATED METHODS ################
     # ----------------------------------------------------------------------
@@ -2946,7 +2677,6 @@ class Tab4Manager:
           - postprocessed_image_path    : str or None
           - cfd_pressure_plot_path     : str or None
           - cfd_velocity_plot_path     : str or None
-          - additional_images           : List[str]
         """
         self._refresh_patient_info()
         flow_str = f"{self.flow_rate.get():.1f}".replace('.', '_')
@@ -2970,24 +2700,10 @@ class Tab4Manager:
             self.logger.log_warning("Assembly image not found for report")
             messagebox.showwarning("Warning", "Assembly image not found; report may be incomplete.")
 
-        # 2) pressure & velocity
+        # 2) pressure & velocity   #TODO: Point these to the pressure and velocity plots that show change along airway path
         pressure = None
-        for p in cfd_dir.glob("*p_plot.png"):
-            pressure = str(p)
-            break
-        if not pressure:
-            for p in cfd_dir.glob("*pressure*.png"):
-                pressure = str(p)
-                break
 
         velocity = None
-        for v in cfd_dir.glob("*v_plot.png"):
-            velocity = str(v)
-            break
-        if not velocity:
-            for v in cfd_dir.glob("*velocity*.png"):
-                velocity = str(v)
-                break
 
         # 3) any other PNGs in cfd_dir **excluding** the above three
         reserved = {postprocessed, pressure, velocity}
@@ -3006,11 +2722,7 @@ class Tab4Manager:
         }
 
     def _preview_report(self):
-        """
-        Generate a preview PDF and display it in the embedded viewer,
-        automatically picking up all the images via _report_image_paths().
-        """
-        # refresh patient fields
+        # Generate a preview PDF and display it in the embedded viewer, automatically picking up all the images via _report_image_paths().
         self._refresh_patient_info()
 
         # gather image paths
@@ -3036,7 +2748,6 @@ class Tab4Manager:
             cfd_velocity_plot_path=paths["cfd_velocity_plot_path"],
             add_preview_elements=True, 
             date_of_report=None,
-            additional_images=paths["additional_images"],
             min_csa=self.min_csa
         )
 
@@ -3198,7 +2909,6 @@ class Tab4Manager:
                         cfd_velocity_plot_path=paths["cfd_velocity_plot_path"],
                         add_preview_elements=True, 
                         date_of_report=None,
-                        additional_images=paths["additional_images"],
                         min_csa=self.min_csa
                     )
 
@@ -3260,11 +2970,9 @@ class Tab4Manager:
                     return False
         return True
     
-
-    
     def _delete_cancelled_files(self):
         """
-        Intelligently delete files based on what operation was cancelled.
+        Delete files based on what operation was cancelled.
         Only deletes in-progress files, preserves completed results.
         """
         try:

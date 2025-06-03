@@ -8,7 +8,7 @@ from reportlab.lib.pagesizes import letter
 from PIL import Image
 
 # Import your CFD extraction logic
-from ..utils.get_cfd_data import extract_cfd_data
+from ..utils.get_cfd_data import extract_cfd_data_from_files
 
 
 def generate_airway_report(
@@ -26,19 +26,17 @@ def generate_airway_report(
     cfd_velocity_plot_path=None,  
     add_preview_elements=True,
     date_of_report=None,
-    additional_images=None,
     include_all_paraview_images=True,
     min_csa=None
 ):
     """
     Generates a multi-page PDF report showing Patient Info, Summary, Post-processed image,
     and CFD images (pressure + velocity). CFD data (pressure drop, velocities) is 
-    automatically retrieved by calling extract_cfd_data(cfd_dir).
+    automatically retrieved by calling extract_cfd_data_from_files(cfd_dir).
     """
 
     # 1) Extract CFD data from the specified case directory
-    cfd_data = extract_cfd_data(cfd_dir) or {}
-
+    cfd_data = extract_cfd_data_from_files(cfd_dir) or {}
 
     # 2) Convert/compute any fields you want
     inlet_velocity = None
@@ -47,10 +45,19 @@ def generate_airway_report(
     pressure_drop_kpa = None
 
     if cfd_data:
-        inlet_velocity = (cfd_data.get("inlet_velocity") or {}).get("magnitude")
-        outlet_velocity = (cfd_data.get("outlet_velocity") or {}).get("magnitude")
-        pressure_drop_pa = (cfd_data or {}).get("pressure_drop")
-        pressure_drop_kpa = pressure_drop_pa / 1000.0 if pressure_drop_pa else None
+        inlet_velocity = cfd_data.get("inlet_velocity")
+        outlet_velocity = cfd_data.get("outlet_velocity")
+        pressure_drop_pa = cfd_data.get("pressure_drop")
+        pressure_drop_kpa = pressure_drop_pa / 1000.0 if pressure_drop_pa is not None else None
+
+        # Compute airway resistance if pressure drop and flow rate are valid
+        airway_resistance = None
+        try:
+            flow_rate_Lps = float(flow_rate_val) / 60.0  # Convert LPM to L/s
+            if flow_rate_Lps > 0 and pressure_drop_pa is not None:
+                airway_resistance = (pressure_drop_pa / flow_rate_Lps) / 98.0665  # Convert Pa/L/s to cmH2O/L/s
+        except (TypeError, ValueError, ZeroDivisionError):
+            airway_resistance = None
 
     # Default the date if not specified
     if not date_of_report:
@@ -59,18 +66,22 @@ def generate_airway_report(
     # 3) Find all ParaView images if requested
     paraview_images = []
     if include_all_paraview_images and os.path.exists(cfd_dir):
-        # Look for all PNG files in the CFD directory
-        png_pattern = os.path.join(cfd_dir, "*.png")
-        paraview_images = sorted(glob.glob(png_pattern))
+        # Look for specific image patterns only
+        patterns = [
+            "p_cut_*.png",      # Pressure cut planes
+            "p_full_*.png",     # Pressure surface views
+            "v_cut_*.png",      # Velocity cut planes  
+            "v_full_*.png",     # Velocity surface views
+            "v_streamlines*.png"   # Streamline visualizations
+        ]
         
-        # Categorize images by their names for better organization
-        pressure_images = [img for img in paraview_images if "p_" in os.path.basename(img)]
-        velocity_images = [img for img in paraview_images if "v_" in os.path.basename(img)]
-        streamline_images = [img for img in paraview_images if "streamline" in os.path.basename(img)]
-        other_images = [img for img in paraview_images if img not in pressure_images + velocity_images + streamline_images]
+        for pattern in patterns:
+            pattern_path = os.path.join(cfd_dir, pattern)
+            paraview_images.extend(sorted(glob.glob(pattern_path)))
         
-        # Re-organize in a meaningful order
-        paraview_images = pressure_images + velocity_images + streamline_images + other_images
+        # Remove duplicates and already-used images
+        excluded_images = {cfd_pressure_plot_path, cfd_velocity_plot_path, postprocessed_image_path}
+        paraview_images = [img for img in paraview_images if img not in excluded_images]
 
     # Create PDF canvas with letter page size
     try:
@@ -84,11 +95,6 @@ def generate_airway_report(
             flow_rate_val = float(flow_rate_val)
         except (TypeError, ValueError):
             flow_rate_val = 0.0
-
-        try:
-            airway_volume = float(airway_volume) if airway_volume is not None else None
-        except (TypeError, ValueError):
-            airway_volume = None
 
         try:
             min_csa = float(min_csa) if min_csa is not None else None
@@ -131,7 +137,7 @@ def generate_airway_report(
         c.setFont("Helvetica", 12)
 
         # Prepare strings
-        airway_volume_str = f"{airway_volume:.2f}" if airway_volume else "Not calculated"
+        airway_volume_str = airway_volume if airway_volume else "Not calculated"
         min_csa_str = f"{min_csa:.2f}" if min_csa else "Not calculated"
         press_drop_pa_str = "Not calculated"
         press_drop_kpa_str = "N/A"
@@ -142,20 +148,25 @@ def generate_airway_report(
         # e.g. "40.0" LPM
         flow_rate_str = f"{flow_rate_val:.1f}"
 
-        if airway_resistance is None:
-            airway_resistance = "Not calculated"
+        airway_resistance_str = f"{airway_resistance:.2f}" if airway_resistance is not None else "Not calculated"
 
         # Draw them
-        c.drawString(70, y_position - 20, f"Airway Volume: {airway_volume_str}")
-        c.drawString(70, y_position - 35, f"Minimum Cross-Sectional Area: {min_csa_str} mm² (rough estimate)") ##TODO: Remove the approximate label when using final min CSA function
+        c.drawString(70, y_position - 20, airway_volume_str)
+        c.drawString(70, y_position - 35, f"Minimum Cross-Sectional Area: {min_csa_str} mm² (rough estimate)") ##TODO: Remove the rough estimate label when using final min CSA function
         c.drawString(70, y_position - 50, f"Pressure Drop: {press_drop_kpa_str} kPa ({press_drop_pa_str} Pa)")
+        c.drawString(70, y_position - 65, f"Inlet Velocity: {inlet_velocity:.3f} m/s")
         if inlet_velocity is not None:
             c.drawString(70, y_position - 65, f"Inlet Velocity: {inlet_velocity:.3f} m/s")
+        else:
+            c.drawString(70, y_position - 65, "Inlet Velocity: Not available")
         if outlet_velocity is not None:
             c.drawString(70, y_position - 80, f"Outlet Velocity: {outlet_velocity:.3f} m/s")
-        y_position -= 105
+        else:
+            c.drawString(70, y_position - 80, f"Outlet Velocity: Not available")
+        c.drawString(70, y_position - 95, f"Airway Resistance: {airway_resistance_str} cmH2O / L / s")
 
-        #
+        # Next section
+        y_position -= 120
         # 3) Simulation Conditions
         #
         c.setFont("Helvetica-Bold", 14)
@@ -272,8 +283,6 @@ def generate_airway_report(
             page_number = 2
             if include_all_paraview_images and paraview_images:
                 total_pages = 2 + len(paraview_images)
-            elif additional_images:
-                total_pages = 2 + len(additional_images)
             else:
                 total_pages = 2
             c.drawString(50, 30, f"(Preview) Page {page_number} of {total_pages}")
@@ -299,15 +308,17 @@ def generate_airway_report(
                     # Caption logic (you can reuse yours)
                     img_filename = os.path.basename(img_path)
                     if "p_full" in img_filename:
-                        caption = f"Pressure Distribution - View {img_filename.split('_')[-1].split('.')[0]}"
+                        caption = f"Pressure Distribution Surface View {img_filename.split('_')[-1].split('.')[0]}"
                     elif "v_full" in img_filename:
-                        caption = f"Velocity Distribution - View {img_filename.split('_')[-1].split('.')[0]}"
+                        caption = f"Velocity Distribution Surface View {img_filename.split('_')[-1].split('.')[0]}"
                     elif "p_cut" in img_filename:
-                        caption = f"Pressure Distribution (Section) - View {img_filename.split('_')[-1].split('.')[0]}"
+                        caption = f"Pressure Distribution (Section) - {img_filename.split('_')[-1].split('.')[0].capitalize()} View"
                     elif "v_cut" in img_filename:
-                        caption = f"Velocity Distribution (Section) - View {img_filename.split('_')[-1].split('.')[0]}"
-                    elif "streamline" in img_filename:
-                        caption = f"Streamline Visualization - View {img_filename.split('_')[-1].split('.')[0]}"
+                        caption = f"Velocity Distribution (Section) - {img_filename.split('_')[-1].split('.')[0].capitalize()} View"
+                    elif "v_streamlines" in img_filename:
+                        # Extract number from v_streamlines1.png -> "1"
+                        number = img_filename.replace("v_streamlines", "").replace(".png", "")
+                        caption = f"Streamline Visualization {number}" if number else "Streamline Visualization"
                     else:
                         caption = f"CFD Visualization: {img_filename}"
 

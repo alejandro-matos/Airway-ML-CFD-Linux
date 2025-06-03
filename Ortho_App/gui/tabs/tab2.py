@@ -856,22 +856,21 @@ class Tab2Manager:
         # Double-click to open
         tree.bind("<Double-1>", lambda event: on_open())
 
-        # Force update before grab
+        # Force update before positioning and setting modal behavior
         dlg.update()
-        
+
+        # Ensure the dialog stays on top and blocks the main window
+        dlg.transient(self.app)
+        dlg.grab_set()
+        dlg.focus_force()
+
         # Center the dialog on the parent window
         self.app.update_idletasks()
         x = self.app.winfo_rootx() + (self.app.winfo_width() - dlg.winfo_width()) // 2
         y = self.app.winfo_rooty() + (self.app.winfo_height() - dlg.winfo_height()) // 2
         dlg.geometry(f"+{x}+{y}")
-        
-        # Now it should be safe to grab
-        try:
-            dlg.grab_set()
-        except Exception as e:
-            self.logger.log_error(f"Dialog grab error: {e}")
-            # Continue without grab - dialog will still work, just not modal
-        
+
+        # Wait for dialog to close before continuing
         self.app.wait_window(dlg)
 
 

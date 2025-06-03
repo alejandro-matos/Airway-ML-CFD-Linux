@@ -3,6 +3,7 @@ import re
 import numpy as np
 import os
 import argparse
+import math
 
 
 # TODO: Change all -time 20 to -time 100 or whatever number of steps used
@@ -16,56 +17,69 @@ def run_command(command, case_dir=None):
     result = subprocess.run(command, shell=True, capture_output=True, text=True)
     return result.stdout
 
-def get_pressure(boundary_name, case_dir=None):
-    """Get pressure at specified boundary"""
-    command = f"postProcess -time 20 -func \"patchAverage(name={boundary_name},p)\""
-    output = run_command(command, case_dir)
-    
-    # Extract pressure value
-    match = re.search(r'areaAverage\(' + boundary_name + r'\) of p = ([\d\.]+)', output)
-    if match:
-        return float(match.group(1))
+
+
+def read_latest_velocity_magnitude(file_path):
+    """
+    Reads the latest velocity vector (in format (ux uy uz)) and returns its magnitude.
+    """
+    try:
+        with open(file_path, "r") as f:
+            lines = f.readlines()
+
+        for line in reversed(lines):
+            if line.strip() and not line.startswith("#"):
+                parts = line.strip().split(maxsplit=2)
+                if len(parts) >= 3 and "(" in parts[2]:
+                    vec_str = parts[2].strip("()")
+                    components = vec_str.split()
+                    if len(components) == 3:
+                        ux, uy, uz = map(float, components)
+                        magnitude = math.sqrt(ux**2 + uy**2 + uz**2)
+                        return magnitude
+    except Exception as e:
+        print(f"Error reading velocity file {file_path}: {e}")
     return None
 
-def get_velocity(boundary_name, case_dir=None):
-    """Get velocity at specified boundary"""
-    command = f"postProcess -time 20 -func \"patchAverage(name={boundary_name},U)\""
-    output = run_command(command, case_dir)
-    
-    # Extract velocity components
-    match = re.search(r'areaAverage\(' + boundary_name + r'\) of U = \(([\d\.\-e+]+) ([\d\.\-e+]+) ([\d\.\-e+]+)\)', output)
-    if match:
-        ux = float(match.group(1))
-        uy = float(match.group(2))
-        uz = float(match.group(3))
-        magnitude = np.sqrt(ux**2 + uy**2 + uz**2)
-        return {
-            "magnitude": magnitude,
-            "components": [ux, uy, uz]
-        }
+def read_latest_pressure_value(file_path):
+    """
+    Reads the last valid pressure value from a surfaceFieldValue.dat file.
+    """
+    try:
+        with open(file_path, "r") as f:
+            lines = f.readlines()
+
+        for line in reversed(lines):
+            if line.strip() and not line.startswith("#"):
+                parts = line.strip().split()
+                if len(parts) >= 2:
+                    return float(parts[1])  # pressure value is in 2nd column
+    except Exception as e:
+        print(f"Error reading pressure file {file_path}: {e}")
     return None
 
-def extract_cfd_data(case_dir, time="20", boundaries=("inlet", "outlet")):
-    """
-    Extract average pressure and velocity from the OpenFOAM case
-    and return them in a dictionary.
-    """
-    results = {}
-    for boundary in boundaries:
-        pval = get_pressure(boundary, case_dir)
-        vval = get_velocity(boundary, case_dir)
+def extract_cfd_data_from_files(case_dir):
+    inlet_file = os.path.join(case_dir, "postProcessing", "avgsurf_in", "0", "surfaceFieldValue.dat")
+    outlet_file = os.path.join(case_dir, "postProcessing", "avgsurf_out", "0", "surfaceFieldValue.dat")
 
-        results[f"{boundary}_pressure"] = pval
-        results[f"{boundary}_velocity"] = vval
+    inlet_pressure = read_latest_pressure_value(inlet_file)
+    outlet_pressure = read_latest_pressure_value(outlet_file)
+    inlet_velocity = read_latest_velocity_magnitude(inlet_file)
+    outlet_velocity = read_latest_velocity_magnitude(outlet_file)
 
-    # Optionally compute pressure drop if both inlet and outlet are present
-    inlet_key = "inlet_pressure"
-    outlet_key = "outlet_pressure"
-    if inlet_key in results and outlet_key in results:
-        if results[inlet_key] is not None and results[outlet_key] is not None:
-            results["pressure_drop"] = results[inlet_key] - results[outlet_key]
+    results = {
+        "inlet_pressure": inlet_pressure,
+        "outlet_pressure": outlet_pressure,
+        "pressure_drop": None,
+        "inlet_velocity": inlet_velocity, 
+        "outlet_velocity": outlet_velocity
+    }
+
+    if inlet_pressure is not None and outlet_pressure is not None:
+        results["pressure_drop"] = inlet_pressure - outlet_pressure
 
     return results
+
 
 def main():
     # Set up command line argument parsing

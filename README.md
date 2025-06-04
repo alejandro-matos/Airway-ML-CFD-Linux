@@ -4,7 +4,7 @@
   </a>
 </p>
 
-# Nasal and Oropharyngeal Segmentation and Simulation of Airflow Application
+# Nasal and Oropharyngeal Segmentation and Simulation of Airflow (NOSSA) Application
 
 A comprehensive graphical user interface designed for medical professionals to perform automated upper airway segmentation and computational fluid dynamics (CFD) simulations starting from CT or CBCT scans. This tool streamlines the workflow from image processing to final report generation.
 
@@ -15,7 +15,7 @@ A comprehensive graphical user interface designed for medical professionals to p
 - **Automated Reporting**: Generation of clear, concise analysis reports
 - **User-Specific Data Management**: Secure data organization with individual user folders
 
-If you use {AppName} for your work, please cite:
+If you use the NOSSA App for your work, please cite:
 - **Research group work**:  
   <!-- TODO: Add Uday and Dr. Lange's work citation if applicable -->
   > Uday and Dr. Lange's work on simulation verification
@@ -39,40 +39,14 @@ If you use {AppName} for your work, please cite:
 - nnUNetv2 
 
 ### Hardware Specifications
-<!-- TODO: Specify hardware recommendations -->
 - Recommended RAM: 32 GB
-- GPU: NVIDIA processor
+- GPU: A CUDA capable NVIDIA processor
 
 ## Software Installation Scripts
-If starting from a fresh OpenSUSE installation, you can run the following scripts to set up all necessary software:
-
-<!-- TODO: Review what packages to install -->
-[Script still needs to be written]
-```bash
-bash -c "$(curl -fsSL https://raw.githubusercontent.com/alejandro-matos/OpenSUSE-Setup-Scripts/main/OpenSUSE_Installation.sh)"
-```
-If you need to manually install the required software, you can do so using the following commands:
-
-### System Dependencies Installation
-Run the following command to install essential system packages:
-[Review commands]
-```bash
-sudo zypper install -y python311 blender openfoam paraview
-```
-This command will:
-- Install Python 3.11
-- Install Blender 2.82 (adjust package name if needed)
-- Install OpenFOAM 2306
-- Install ParaView 5.12
-
-### Python packages
-Once system dependencies are installed, install the required Python libraries:
-```bash
-pip install -r requirements.txt
-```
+If starting from a fresh OpenSUSE installation, you can follow the guide found [here](https://github.com/alejandro-matos/Airway-ML-CFD-Linux/blob/main/Project%20Technical%20Information/CFD_App_Guide_20250601.odt).
 
 
-## {AppName} Quick Start Guide
+## NOSSA Quick Start Guide
 
 <!-- TODO: Add video demo link or embed code -->
 [![Watch the demo](path/to/demo_thumbnail.png)](https://link.to/demo)

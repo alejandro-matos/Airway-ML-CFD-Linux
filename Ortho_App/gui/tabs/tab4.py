@@ -2010,6 +2010,9 @@ class Tab4Manager:
     def _on_sim_done(self, cfd_dir):
         """Process and visualize CFD results after simulation completes."""
         try:
+            # Refresh patient info before any report generation
+            self._refresh_patient_info()
+            
             # Run ParaView script to generate visualization images
             self.update_progress(
                 "Generating visualization images...",
@@ -2030,6 +2033,26 @@ class Tab4Manager:
             if pressure_images or velocity_images:
                 self._update_render_display("cfd", None)  # This will trigger the _update_cfd_display method
                 self._select_tab("CFD Simulation")
+            
+            # OPTIONAL: Verify that essential data is loaded
+            # (This might help catch other data inconsistencies)
+            if not hasattr(self, 'airway_volume') or not self.airway_volume:
+                self.logger.log_warning("Airway volume not found, attempting to reload from file")
+                volume_file = Path(self.app.full_folder_path) / "volume_calculation.txt"
+                if volume_file.exists():
+                    with open(volume_file, 'r') as f:
+                        volume_str = f.read().strip()
+                        self.airway_volume = float(volume_str) if volume_str.replace('.', '', 1).isdigit() else volume_str
+            
+            if not hasattr(self, 'min_csa') or self.min_csa is None:
+                self.logger.log_warning("Min CSA not found, attempting to reload from file")
+                min_csa_path = Path(self.app.full_folder_path) / "min_csa.txt"
+                if min_csa_path.exists():
+                    text = min_csa_path.read_text()
+                    import re
+                    m = re.search(r"[-+]?\d*\.?\d+", text)
+                    if m:
+                        self.min_csa = float(m.group(0))
             
             # Now finalize everything
             self._finalize_processing()
@@ -2724,6 +2747,11 @@ class Tab4Manager:
     def _preview_report(self):
         # Generate a preview PDF and display it in the embedded viewer, automatically picking up all the images via _report_image_paths().
         self._refresh_patient_info()
+
+        # Add debug logging
+        self.logger.log_info(f"Preview report - Patient: {self.app.patient_name.get()}")
+        self.logger.log_info(f"Preview report - Volume: {getattr(self, 'airway_volume', 'NOT SET')}")
+        self.logger.log_info(f"Preview report - Min CSA: {getattr(self, 'min_csa', 'NOT SET')}")
 
         # gather image paths
         paths = self._report_image_paths()

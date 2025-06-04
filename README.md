@@ -3,7 +3,11 @@
 A comprehensive graphical user interface designed for medical professionals to perform automated upper airway segmentation and computational fluid dynamics (CFD) simulations starting from CT or CBCT scans. This tool streamlines the workflow from image processing to final report generation.
 
 <!-- TODO: Add a project logo or header image here -->
-![App Logo](https://raw.githubusercontent.com/alejandro-matos/Airway-ML-CFD-Linux/main/Ortho_App/gui/components/icons/UpperAirwaySegmentator_full_icon.png)
+<p align="center">
+  <a href="https://github.com/alejandro-matos/Airway-ML-CFD-Linux">
+    <img src="https://raw.githubusercontent.com/alejandro-matos/Airway-ML-CFD-Linux/main/Ortho_App/gui/components/icons/UpperAirwaySegmentator_full_icon.png" alt="App Logo" width="300"/>
+  </a>
+</p>
 
 ## Features
 

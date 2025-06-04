@@ -48,9 +48,6 @@ If starting from a fresh OpenSUSE installation, you can follow the guide found [
 
 ## NOSSA Quick Start Guide
 
-<!-- TODO: Add video demo link or embed code -->
-[![Watch the demo](path/to/demo_thumbnail.png)](https://link.to/demo)
-
 1. Launch the application by clicking on the icon: [Insert icon]
 2. Enter your username when prompted
 3. Select and import medical images
@@ -59,7 +56,7 @@ If starting from a fresh OpenSUSE installation, you can follow the guide found [
    - Segmentation with CFD simulation
 5. Review the generated report in your user folder
 
-## Project Structure
+## Project Structure (not updated)
 
 ```
 Ortho_App/
@@ -77,7 +74,7 @@ Ortho_App/
 
 Logs are generated to help troubleshoot issues. These logs capture user activity, and system status. These logs can be found in the `logs/` directory and are useful for debugging potential issues.
 
-## Data Management
+## Data Management (not updated)
 
 All user data is stored in individual folders under the `user_data` directory:
 ```
@@ -99,17 +96,13 @@ This section will list the most commonly encountered issues and how to solve the
 
 [Instructions for contributors]
 
-## License
-
-[Specify license]
-
 ## Contact
 
 [Contact information]
 
 ## Acknowledgments
 Authors: A. Matos Camarillo (University of Alberta), U. Tummala (University of Alberta), S. Capenakas-Gianoni (University of Alberta), K. Punithakumar (University of Alberta), C.F. Lange (University of Alberta), M. Lagravere-Vich (University of Alberta)
-Supported by [Add funding sources tk]
+Supported by [Add funding sources]
 
 ---
 **Note**: This is a medical tool intended for professional use only. Users should ensure compliance with local medical data handling regulations.

@@ -5,7 +5,7 @@ A comprehensive graphical user interface designed for medical professionals to p
 <!-- TODO: Add a project logo or header image here -->
 <p align="center">
   <a href="https://github.com/alejandro-matos/Airway-ML-CFD-Linux">
-    <img src="https://raw.githubusercontent.com/alejandro-matos/Airway-ML-CFD-Linux/main/Ortho_App/gui/components/icons/UpperAirwaySegmentator_full_icon.png" alt="App Logo" width="300"/>
+    <img src="https://raw.githubusercontent.com/alejandro-matos/Airway-ML-CFD-Linux/main/Ortho_App/gui/components/icons/UpperAirwaySegmentator_full_icon.png" alt="App Logo" width="200"/>
   </a>
 </p>
 

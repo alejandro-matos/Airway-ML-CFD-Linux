@@ -1,7 +1,7 @@
 /*--------------------------------*- C++ -*----------------------------------*\
 | =========                 |                                                 |
 | \\      /  F ield         | OpenFOAM: The Open Source CFD Toolbox           |
-|  \\    /   O peration     | Version:  v2306                                 |
+|  \\    /   O peration     | Version:  v2012                                 |
 |   \\  /    A nd           | Website:  www.openfoam.com                      |
 |    \\/     M anipulation  |                                                 |
 \*---------------------------------------------------------------------------*/
@@ -9,33 +9,43 @@ FoamFile
 {
     version     2.0;
     format      ascii;
-    class       volScalarField;
-    object      nut;
+    class       volVectorField;
+    object      U;
 }
 // * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
 
-dimensions      [0 2 -1 0 0 0 0];
+dimensions      [0 1 -1 0 0 0 0];
 
-internalField   uniform 0;
+internalField   uniform (0 0 0);
+
+#include "pvfr.txt"
 
 boundaryField
 {
     inlet
     {
-        type            calculated;
-        value           uniform 0;
-    }
-
-    outlet
-    {
-        type            calculated;
-        value           uniform 0;
+        type          pressureInletOutletVelocity;
+        value         uniform (0 0 0);
     }
 
     wall
     {
-        type            calculated; //fixedValue; //nutUBlendedWallFunction;
-        value           uniform 0;
+        type            noSlip;
+    }
+
+    outlet
+    {
+        type            flowRateOutletVelocity;
+        massFlowRate    constant #codeStream
+        {
+            code
+            #{
+               scalar result = ($vfr * 1.122) / 60000;
+               os  << result;
+            #};
+        };
+        rhoOutlet       1.122;
     }
 }
+
 // ************************************************************************* //

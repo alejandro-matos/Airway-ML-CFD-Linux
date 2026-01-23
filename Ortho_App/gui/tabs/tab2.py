@@ -2,7 +2,7 @@
 
 import customtkinter as ctk
 import tkinter as tk
-from tkinter import filedialog, messagebox, ttk
+from tkinter import messagebox, ttk
 import os
 from datetime import datetime
 import pydicom
@@ -503,363 +503,323 @@ class Tab2Manager:
             print(f"Error getting folders: {e}")
             return []
 
+    def _is_within_drive(self, base_path, target_path):
+        """Return True if target_path is inside base_path."""
+        base = Path(base_path).resolve()
+        target = Path(target_path).resolve()
+        try:
+            target.relative_to(base)
+            return True
+        except ValueError:
+            return False
+
     def _handle_folder_selection(self):
-        """
-        Enhanced file-picker with special handling for NIfTI files to show file names.
-        """
-        # 1. Discover mounts
+        """Let the user pick a drive and manually choose a DICOM folder or NIfTI file(s)."""
+        # Discover mounted drives
         mounts = []
         for d in Path("/media").iterdir() if Path("/media").exists() else []:
-            if d.is_dir(): mounts.append(str(d))
+            if d.is_dir():
+                mounts.append(str(d))
         user_media = Path("/run/media") / getpass.getuser()
         for d in user_media.iterdir() if user_media.exists() else []:
-            if d.is_dir(): mounts.append(str(d))
+            if d.is_dir():
+                mounts.append(str(d))
 
         if not mounts:
             messagebox.showerror(
                 "No External Drives Detected",
                 "No external storage devices were found. \n"
-                "Please connect an external drive (e.g. USB) and try again."
+                "Please connect an external drive (e.g. USB) and try again.",
+                parent=self.app
             )
             return
 
-        # 2. Dialog window - make it slightly larger
         dlg = ctk.CTkToplevel(self.app)
-        dlg.title("Select Image Series")
-        w, h = TAB2_SETTINGS["DIMENSIONS"]["DIALOG_SIZE"]
-        w += 100  # Make wider
-        h += 50   # Make taller
+        dlg.title("Select Medical Images")
+        # Keep the dialog compact and scaled to the current screen
+        cfg_w, cfg_h = TAB2_SETTINGS["DIMENSIONS"]["DIALOG_SIZE"]
+        screen_w = self.app.winfo_screenwidth()
+        screen_h = self.app.winfo_screenheight()
+        w = min(cfg_w, int(screen_w * 0.7))
+        h = min(cfg_h, int(screen_h * 0.7))
         dlg.geometry(f"{w}x{h}")
-        
-        # Configure grid
         dlg.grid_columnconfigure(0, weight=1)
-        dlg.grid_rowconfigure(1, weight=1)  # Row 0 is for drive selection, Row 1 for treeview
-        
-        # 3. BIG DRIVE SELECTION at the top
+        dlg.grid_rowconfigure(1, weight=1)
+        dlg.grid_rowconfigure(2, weight=0)
+
         drive_frame = ctk.CTkFrame(dlg, fg_color=UI_SETTINGS["COLORS"]["SECTION_ACTIVE"])
-        drive_frame.grid(row=0, column=0, columnspan=2, sticky="ew", padx=10, pady=10)
-        
+        drive_frame.grid(row=0, column=0, sticky="ew", padx=10, pady=10)
+
         ctk.CTkLabel(
-            drive_frame, 
-            text="Select a drive from the drop down menu \nand click on 'Scan Drive':", 
+            drive_frame,
+            text="Select an external drive, then browse within this window:",
             font=UI_SETTINGS["FONTS"]["CATEGORY"]
         ).pack(side="left", padx=(20, 10), pady=15)
-        
-        # Create drive dropdown
+
         drive_var = tk.StringVar()
-        
-        # CustomTkinter's combobox doesn't directly support setting the dropdown font size
-        # So we need to use the underlying Tkinter combobox instead for better control
-        
-        # Create a custom styled ttk.Combobox to get bigger dropdown font
-        style = ttk.Style(dlg)
-        style.theme_use('clam')   # clam usually supports arrowsize
-        style.configure(
-            "BigCombo.TCombobox",
-            padding=5,            # your existing padding
-            arrowsize=30          # ← make the arrow bigger (pixels)
-        )
-        
-        # Configure the dropdown list font - this is critical for readability
-        dlg.option_add("*TCombobox*Listbox.font", UI_SETTINGS["FONTS"]["NORMAL"])
-        
-        # Create the Combobox with the big style
         drive_dropdown = ttk.Combobox(
             drive_frame,
-            values=[os.path.basename(m) for m in mounts],
+            values=[f"{os.path.basename(m)} ({m})" for m in mounts],
             textvariable=drive_var,
-            width=20,
-            style="BigCombo.TCombobox",
-            font=UI_SETTINGS["FONTS"]["NORMAL"],  # This sets the entry part font
+            width=50,
+            state="readonly",
+            font=UI_SETTINGS["FONTS"]["NORMAL"],
         )
-        
-        # Apply additional styling to make it larger
         drive_dropdown.pack(side="left", padx=10, pady=15)
-        
-        # Larger scan button
-        scan_button = ctk.CTkButton(
-            drive_frame, 
-            text="SCAN DRIVE", 
-            font=UI_SETTINGS["FONTS"]["CATEGORY"],
-            width=160,
-            height=50,
-            fg_color=UI_SETTINGS["COLORS"]["REG_BUTTON"],
-            hover_color=UI_SETTINGS["COLORS"]["REG_HOVER"]
+        if mounts:
+            drive_dropdown.set(f"{os.path.basename(mounts[0])} ({mounts[0]})")
+
+        current_path_label = ctk.CTkLabel(
+            drive_frame,
+            text="",
+            font=UI_SETTINGS["FONTS"]["NORMAL"],
+            text_color=UI_SETTINGS["COLORS"]["TEXT_LIGHT"],
+            wraplength=600,
+            justify="left"
         )
-        scan_button.pack(side="left", padx=20, pady=15)
-        
-        # 4. Treeview for series listing with much larger font
-        tree_frame = ctk.CTkFrame(dlg)
-        tree_frame.grid(row=1, column=0, sticky="nsew", padx=10, pady=10)
-        
-        tree_frame.grid_columnconfigure(0, weight=1)
-        tree_frame.grid_rowconfigure(0, weight=1)
-        
+        current_path_label.pack(side="left", padx=10, pady=15)
+
+        def get_drive_path():
+            value = drive_var.get()
+            if "(" in value and value.endswith(")"):
+                return value.split("(", 1)[1][:-1]
+            messagebox.showwarning("Drive Required", "Please select a valid drive.", parent=dlg)
+            return None
+
+        # Icons for tree rows (kept as attributes to prevent garbage collection)
+        back_xbm = r"""
+#define back_width 24
+#define back_height 12
+static unsigned char back_bits[] = {
+ 0x00,0x00,0x00,
+ 0x04,0x00,0x00,
+ 0x0c,0x00,0x00,
+ 0x1c,0x00,0x00,
+ 0x3c,0x00,0x00,
+ 0x7c,0x00,0x00,
+ 0xfc,0x00,0x00,
+ 0x7c,0x00,0x00,
+ 0x3c,0x00,0x00,
+ 0x1c,0x00,0x00,
+ 0x0c,0x00,0x00,
+ 0x04,0x00,0x00};
+"""
+
+        folder_xbm = r"""
+#define folder_width 24
+#define folder_height 12
+static unsigned char folder_bits[] = {
+ 0xf8,0x07,0x00,
+ 0xfe,0x0f,0x00,
+ 0xfe,0x0f,0x00,
+ 0xfe,0x0f,0x00,
+ 0xfe,0x0f,0x00,
+ 0xfe,0x0f,0x00,
+ 0xfe,0x0f,0x00,
+ 0xfe,0x0f,0x00,
+ 0xfe,0x0f,0x00,
+ 0xfe,0x0f,0x00,
+ 0xfe,0x0f,0x00,
+ 0x00,0x00,0x00};
+"""
+        file_xbm = r"""
+#define file_width 24
+#define file_height 12
+static unsigned char file_bits[] = {
+ 0xff,0xff,0x03,
+ 0x01,0x00,0x02,
+ 0x01,0x00,0x02,
+ 0x01,0x00,0x02,
+ 0x01,0x00,0x02,
+ 0x01,0x00,0x02,
+ 0x01,0x00,0x02,
+ 0x01,0x00,0x02,
+ 0x01,0x00,0x02,
+ 0x01,0x00,0x02,
+ 0xff,0xff,0x03,
+ 0x00,0x00,0x00};
+"""
+        icons = {
+            "back": tk.BitmapImage(data=back_xbm, foreground="red"),
+            "folder": tk.BitmapImage(data=folder_xbm, foreground="blue"),
+            "file": tk.BitmapImage(data=file_xbm, foreground=UI_SETTINGS["COLORS"]["TEXT_LIGHT"]),
+        }
+        self._browse_icons = icons
+
         style = ttk.Style(dlg)
         style.configure(
-            "BigTree.Treeview",
-            font=("Arial", 16),
-            rowheight=40
-        )
-        style.configure(
-            "BigTree.Treeview.Heading",
-            font=("Arial", 18, "bold")
+            "DriveTree.Treeview",
+            font=UI_SETTINGS["FONTS"]["NORMAL"],
+            rowheight=28
         )
 
-        # Create a treeview for series folders and files
+        list_frame = ctk.CTkFrame(dlg)
+        list_frame.grid(row=1, column=0, sticky="nsew", padx=10, pady=10)
+        list_frame.grid_columnconfigure(0, weight=1)
+        list_frame.grid_rowconfigure(0, weight=1)
+
         tree = ttk.Treeview(
-            tree_frame, 
-            columns=("path", "count", "type"), 
-            show="headings", 
-            selectmode="browse",
-            style="BigTree.Treeview"
+            list_frame,
+            columns=("name",),
+            show="tree",
+            selectmode="extended",
+            style="DriveTree.Treeview"
         )
-        tree.heading("path", text="Series/File Name")
-        tree.heading("count", text="Count/Size")
-        tree.heading("type", text="Type")
-        tree.column("path", width=450)
-        tree.column("count", width=120, anchor="e")
-        tree.column("type", width=120)
         tree.grid(row=0, column=0, sticky="nsew")
+        scrollbar = tk.Scrollbar(list_frame, orient="vertical", command=tree.yview)
+        scrollbar.grid(row=0, column=1, sticky="ns")
+        tree.configure(yscrollcommand=scrollbar.set)
+        tree.tag_configure("back", foreground="red")
+        tree.tag_configure("folder", foreground="blue")
 
-        vsb = ttk.Scrollbar(tree_frame, orient="vertical", command=tree.yview)
-        tree.configure(yscrollcommand=vsb.set)
-        vsb.grid(row=0, column=1, sticky="ns")
-        
-        # Store information about selected items
-        selected_info = {}
-        
-        def format_size(size_bytes):
-            """Format file size in human-readable format"""
-            for unit in ['B', 'KB', 'MB', 'GB']:
-                if size_bytes < 1024.0 or unit == 'GB':
-                    return f"{size_bytes:.1f} {unit}"
-                size_bytes /= 1024.0
-        
-        def scan_drive():
-            """Scan the selected drive for DICOM and NIfTI series, handling both folders and individual files"""
-            # Clear previous entries
-            for item in tree.get_children():
+        current_path = {"path": None}
+
+        def refresh_list(path):
+            drive_root = get_drive_path()
+            if not drive_root or not self._is_within_drive(drive_root, path):
+                return
+            current_path["path"] = path
+            current_path_label.configure(text=path)
+            for item in tree.get_children(""):
                 tree.delete(item)
-            
-            selected_info.clear()
-            
-            # Get selected drive 
-            drive_name = drive_var.get()
-            if not drive_name:
-                self.folder_status_label.configure(text="⚠️ Please select a drive first")
+
+            entries = []
+            try:
+                for entry in os.listdir(path):
+                    full = os.path.join(path, entry)
+                    entries.append((entry, full, os.path.isdir(full)))
+            except Exception:
                 return
-                
-            # Find the full path matching this drive name
-            drive_path = None
-            for m in mounts:
-                if os.path.basename(m) == drive_name:
-                    drive_path = m
-                    break
-                    
-            if not drive_path:
-                self.folder_status_label.configure(text="⚠️ Drive not found")
-                return
-            
-            # Remember this drive location for later
-            self.app.selected_drive_path = drive_path
-                
-            # Disable scan button and update status
-            scan_button.configure(state="disabled", text="SCANNING...")
-            self.folder_status_label.configure(text="⏳ Scanning drive for image series...")
-            dlg.update()  # Update UI to show status change
-            
-            # Use a thread to scan the drive without freezing UI
-            def scan_thread():
-                # Dictionary to track folders containing medical images
-                dicom_folders = {}
-                nifti_files = []
-                
-                # Walk through all directories on the drive
-                for root, dirs, files in os.walk(drive_path):
-                    # Skip certain folder patterns common in macOS/Windows
-                    if any(skip in root for skip in ['.Trash', '$Recycle.Bin', 'System Volume Information']):
-                        continue
-                    
-                    # For DICOM: track folders with DICOM files
-                    dicom_count = 0
-                    for file in files:
-                        file_path = os.path.join(root, file)
-                        if self._is_dicom_file(file_path):
-                            dicom_count += 1
-                    
-                    # If folder contains DICOM images, add to tracking
-                    if dicom_count > 0:
-                        dicom_folders[root] = {
-                            "path": root,
-                            "name": os.path.basename(root),
-                            "count": dicom_count,
-                            "type": "DICOM",
-                            "is_folder": True
-                        }
-                    
-                    # For NIfTI: track individual files
-                    for file in files:
-                        if file.lower().endswith(('.nii', '.nii.gz')):
-                            file_path = os.path.join(root, file)
-                            try:
-                                file_size = os.path.getsize(file_path)
-                                # Only include NIfTI files larger than 1 MB (1,048,576 bytes)
-                                # This is because segmentations are also saved in NIfTI format after nnUNet but weigh less than 1 MB
-                                if file_size >= 1048576:
-                                    nifti_files.append({
-                                        "path": file_path,
-                                        "name": file,  # Use file name, not folder name
-                                        "size": file_size,
-                                        "size_str": format_size(file_size),
-                                        "type": "NIfTI",
-                                        "is_folder": False
-                                    })
-                            except OSError:
-                                # Skip files we can't access
-                                pass
-                
-                # Sort DICOM folders by name
-                sorted_dicom_folders = sorted(dicom_folders.values(), key=lambda x: x["name"].lower())
-                
-                # Sort NIfTI files by name
-                sorted_nifti_files = sorted(nifti_files, key=lambda x: x["name"].lower())
-                
-                # Combine both lists, with DICOM folders first
-                all_items = sorted_dicom_folders + sorted_nifti_files
-                
-                # Update UI from main thread
-                dlg.after(0, lambda: update_list(all_items))
-            
-            def update_list(items):
-                """Update the treeview with both folder and file information"""
-                for item in items:
-                    try:
-                        # Different display for folders vs files
-                        if item["is_folder"]:
-                            # DICOM folder - show relative path
-                            rel_path = os.path.relpath(item["path"], drive_path)
-                            
-                            # If it's a deep path, simplify it
-                            if rel_path.count(os.sep) > 2:
-                                path_parts = rel_path.split(os.sep)
-                                # Show first folder + "..." + last two folders
-                                display_path = f"{path_parts[0]}/.../{path_parts[-2]}/{path_parts[-1]}"
-                            else:
-                                display_path = rel_path
-                                
-                            # Add count info for folders
-                            count_str = f"{item['count']} images"
-                            
-                        else:
-                            # NIfTI file - show file name directly
-                            display_path = item["name"]
-                            count_str = item["size_str"]
-                        
-                        # Add to tree
-                        item_id = tree.insert("", "end", values=(
-                            display_path, 
-                            count_str, 
-                            item["type"]
-                        ))
-                        
-                        # Store original info for later
-                        selected_info[item_id] = item
-                        
-                    except Exception as e:
-                        self.logger.log_error(f"Error adding item to tree: {e}")
-                
-                # Update status and re-enable scan button
-                nifti_count = sum(1 for item in items if not item["is_folder"])
-                dicom_count = sum(1 for item in items if item["is_folder"])
-                self.folder_status_label.configure(
-                    text=f"✅ Found {dicom_count} DICOM series and {nifti_count} NIfTI files"
+            entries.sort(key=lambda x: (not x[2], x[0].lower()))
+
+            drive_root_resolved = Path(drive_root).resolve()
+            path_resolved = Path(path).resolve()
+            if path_resolved != drive_root_resolved:
+                tree.insert(
+                    "",
+                    "end",
+                    iid="__back__",
+                    text="Back",
+                    image=icons["back"],
+                    tags=("back",)
                 )
-                scan_button.configure(state="normal", text="SCAN DRIVE")
-                
-                # Select first item if available
-                if tree.get_children():
-                    tree.selection_set(tree.get_children()[0])
-                    tree.focus(tree.get_children()[0])
-            
-            import threading
-            scan_thread = threading.Thread(target=scan_thread)
-            scan_thread.daemon = True
-            scan_thread.start()
-        
-        # Connect scan button command
-        scan_button.configure(command=scan_drive)
-        
-        # 5. Button bar at bottom with large buttons
-        btn_frame = ctk.CTkFrame(dlg)
-        btn_frame.grid(row=2, column=0, columnspan=2, sticky="e", pady=10, padx=10)
 
-        def on_open():
-            selected_items = tree.selection()
-            if not selected_items:
-                messagebox.showwarning("No Selection", "Please select a series or file.")
+            for name, full, is_dir in entries:
+                img = icons["folder"] if is_dir else icons["file"]
+                tags = ("folder",) if is_dir else ()
+                tree.insert("", "end", iid=full, text=name, image=img, tags=tags)
+
+        def on_drive_change(event=None):
+            drive_root = get_drive_path()
+            if drive_root:
+                refresh_list(drive_root)
+
+        drive_dropdown.bind("<<ComboboxSelected>>", on_drive_change)
+
+        def on_item_activate(event=None):
+            selection = tree.selection()
+            if not selection:
                 return
-                
-            # Get the selected item info
-            item_info = selected_info[selected_items[0]]
-            
-            # Handle differently based on if it's a folder (DICOM) or file (NIfTI)
-            if item_info["is_folder"]:
-                # DICOM folder - get all DICOM files in the folder
-                folder_path = item_info["path"]
-                files = []
-                for file in os.listdir(folder_path):
-                    file_path = os.path.join(folder_path, file)
-                    if os.path.isfile(file_path) and self._is_dicom_file(file_path):
-                        files.append(file_path)
-                        
-                if not files:
-                    messagebox.showwarning("No Files", "No valid DICOM files found in the selected folder.")
-                    return
-                    
-                dlg.destroy()
-                self._process_files(files, folder_path)
-                
-            else:
-                # NIfTI file - just use this single file
-                file_path = item_info["path"]
-                folder_path = os.path.dirname(file_path)
-                
-                dlg.destroy()
-                self._process_files([file_path], folder_path)
+            target = selection[0]
+            if target == "__back__":
+                if current_path["path"]:
+                    parent_path = str(Path(current_path["path"]).parent)
+                    refresh_list(parent_path)
+                return
+            if os.path.isdir(target):
+                refresh_list(target)
 
-        # Large buttons
-        btn_kwargs = dict(
-            width=150, 
-            height=50, 
-            font=("Arial", 16, "bold")
-        )
-        
+        tree.bind("<Double-Button-1>", on_item_activate)
+        tree.bind("<Return>", on_item_activate)
+
+        def choose_dicom_folder():
+            drive_path = get_drive_path()
+            if not drive_path:
+                return
+            folder_path = current_path["path"]
+            selected = [iid for iid in tree.selection() if iid != "__back__"]
+            if len(selected) == 1 and os.path.isdir(selected[0]):
+                folder_path = selected[0]
+            if not folder_path:
+                messagebox.showwarning("Folder Required", "Browse to a folder first.", parent=dlg)
+                return
+            if not self._is_within_drive(drive_path, folder_path):
+                messagebox.showwarning("Invalid Selection", "Please select a valid DICOM folder on the desired drive.", parent=dlg)
+                return
+            if not os.path.isdir(folder_path):
+                messagebox.showwarning("Invalid Selection", "Please select a folder (not a file).", parent=dlg)
+                return
+            files = []
+            for file in os.listdir(folder_path):
+                file_path = os.path.join(folder_path, file)
+                if os.path.isfile(file_path) and self._is_dicom_file(file_path):
+                    files.append(file_path)
+            if not files:
+                messagebox.showwarning("No DICOM Files", "No DICOM files found in current folder.", parent=dlg)
+                return
+            # Persist the selected drive root for later export
+            self.app.selected_drive_path.set(drive_path)
+            dlg.destroy()
+            self._process_files(files, folder_path)
+
+        def choose_nifti_files():
+            drive_path = get_drive_path()
+            if not drive_path:
+                return
+            selected = [iid for iid in tree.selection() if iid != "__back__"]
+            if not selected:
+                messagebox.showwarning("Select Files", "Select NIfTI file.", parent=dlg)
+                return
+            valid_paths = [
+                p for p in selected
+                if os.path.isfile(p) and p.lower().endswith((".nii", ".nii.gz")) and self._is_within_drive(drive_path, p)
+            ]
+            if not valid_paths or len(valid_paths) != len(selected):
+                messagebox.showwarning("Invalid Selection", "Please select valid NIfTI file (.nii.gz).", parent=dlg)
+                return
+            # Persist the selected drive root for later export
+            self.app.selected_drive_path.set(drive_path)
+            dlg.destroy()
+            self._process_files(list(valid_paths), Path(valid_paths[0]).parent)
+
+        # Initialize browser
+        on_drive_change()
+
+        # Action buttons
+        btn_frame = ctk.CTkFrame(dlg)
+        btn_frame.grid(row=2, column=0, sticky="nsew", padx=10, pady=10)
+        btn_frame.grid_columnconfigure((0, 1, 2), weight=1)
+
+        btn_kwargs = dict(width=180, height=44, font=("Arial", 15, "bold"))
+
         ctk.CTkButton(
-            btn_frame, 
-            text="Cancel", 
-            command=dlg.destroy, 
-            fg_color=UI_SETTINGS["COLORS"]["DISABLED_BUTTON"],
-            hover_color=UI_SETTINGS["COLORS"]["WARNING"],
-            **btn_kwargs
-        ).pack(side="right", padx=10)
-        
-        ctk.CTkButton(
-            btn_frame, 
-            text="Open Selection", 
-            command=on_open,
+            btn_frame,
+            text="Select DICOM Folder",
+            command=choose_dicom_folder,
             fg_color=UI_SETTINGS["COLORS"]["REG_BUTTON"],
             hover_color=UI_SETTINGS["COLORS"]["REG_HOVER"],
             **btn_kwargs
-        ).pack(side="right", padx=10)
+        ).grid(row=0, column=0, padx=10, pady=10, sticky="ew")
 
-        # Double-click to open
-        tree.bind("<Double-1>", lambda event: on_open())
+        ctk.CTkButton(
+            btn_frame,
+            text="Select NIfTI File",
+            command=choose_nifti_files,
+            fg_color=UI_SETTINGS["COLORS"]["REG_BUTTON"],
+            hover_color=UI_SETTINGS["COLORS"]["REG_HOVER"],
+            **btn_kwargs
+        ).grid(row=0, column=1, padx=10, pady=10, sticky="ew")
 
-        # Force update before positioning and setting modal behavior
-        dlg.update()
+        ctk.CTkButton(
+            btn_frame,
+            text="Cancel",
+            command=dlg.destroy,
+            fg_color=UI_SETTINGS["COLORS"]["DISABLED_BUTTON"],
+            hover_color=UI_SETTINGS["COLORS"]["WARNING"],
+            **btn_kwargs
+        ).grid(row=0, column=2, padx=10, pady=10, sticky="ew")
 
-        # Ensure the dialog stays on top and blocks the main window
+        # Modal behavior
         dlg.transient(self.app)
         dlg.grab_set()
         dlg.focus_force()
@@ -870,7 +830,6 @@ class Tab2Manager:
         y = self.app.winfo_rooty() + (self.app.winfo_height() - dlg.winfo_height()) // 2
         dlg.geometry(f"+{x}+{y}")
 
-        # Wait for dialog to close before continuing
         self.app.wait_window(dlg)
 
 

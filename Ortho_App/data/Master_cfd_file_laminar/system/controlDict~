@@ -22,7 +22,7 @@ startTime       0;
 
 stopAt          endTime;
 
-endTime         20; //1000;
+endTime         20;//1000;
 
 deltaT          1;
 
@@ -47,7 +47,10 @@ runTimeModifiable true; // And as the option runTimeModifiable is on (true), we 
 functions
 {
     #includeFunc "residuals"
-    #includeFunc "surfaces"
+    //#includeFunc "surfaces"
+    //left nostril = (34, 6, 59) angle 1
+    //right nostril = (44, 6, 59) angle 1
+    //out = (44, 86, 9) angle 0
 
     yPlus1
     {
@@ -77,7 +80,7 @@ functions
         log             on;
         enabled         true;
         writeControl    timeStep;
-        writeInterval   20;
+        writeInterval   20; //100;
         writeFields     false;
         surfaceFormat   vtk;
         writeArea       false;
@@ -86,7 +89,7 @@ functions
         sampledSurfaceDict
            {
               type        plane;
-              point       (0.043 0.0175 0.067); //in
+              point       (0.044 0.017 0.082); //in
               normal      (0 1 0);
            }
         operation       areaAverage;
@@ -104,7 +107,7 @@ functions
         log             on;
         enabled         true;
         writeControl    timeStep;
-        writeInterval   20;
+        writeInterval   20; //100;
         writeFields     false;
         writeArea       false;
         surfaceFormat   vtk;
@@ -113,8 +116,8 @@ functions
         sampledSurfaceDict
            {
               type       plane;
-              point     (0.0404 0.0855 0.0117);
-              normal    (0 0 1);
+              point     (0.036 0.022 0.003); //out
+              normal    (0 1 0);
            }
         operation       areaAverage;
         postOperation   none;
@@ -131,7 +134,7 @@ functions
     libs    (sampling);
     name    probes;
     writeControl   timeStep;
-    writeInterval  20;
+    writeInterval  20; //100;
     fields
     (
         p
@@ -139,9 +142,9 @@ functions
     );
     probeLocations
     (
-        (0.043 0.0175 0.067) //in
-        (0.0351 0.0175 0.066) //in
-        (0.0404 0.0855 0.0117) //out
+        (0.044 0.017 0.082) //in right
+        (0.036 0.017 0.082) //in left
+        (0.036 0.086 0.003) //out
     );
     }
 
@@ -151,7 +154,7 @@ functions
         libs            (fieldFunctionObjects);
         enabled         yes;
         writeControl    timeStep;
-        writeInterval   20;
+        writeInterval   20; //100;
         log             yes;
         writeFields     off;
         regionType      patch;
@@ -170,7 +173,7 @@ functions
         type            surfaceFieldValue;
         libs            (fieldFunctionObjects);
         writeControl    timeStep;
-        writeInterval   20;
+        writeInterval   20; //100;
         log             yes;
         writeFields     no;
         regionType      patch;

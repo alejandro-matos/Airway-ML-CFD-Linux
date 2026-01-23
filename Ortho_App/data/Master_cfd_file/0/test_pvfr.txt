@@ -1,2 +1,0 @@
-vfr 20;
-#inputMode merge

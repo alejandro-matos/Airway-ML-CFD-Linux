@@ -3,6 +3,8 @@
 import os
 import time
 import glob
+import math
+import re
 from reportlab.pdfgen import canvas
 from reportlab.lib.pagesizes import letter
 from PIL import Image
@@ -34,6 +36,126 @@ def generate_airway_report(
     and CFD images (pressure + velocity). CFD data (pressure drop, velocities) is 
     automatically retrieved by calling extract_cfd_data_from_files(cfd_dir).
     """
+    def _safe_text(value, default=""):
+        if value is None:
+            return default
+        if isinstance(value, bytes):
+            return value.decode("utf-8", errors="replace")
+        return str(value)
+
+    def _get_latest_time_dir(base_dir):
+        try:
+            entries = [
+                d for d in os.listdir(base_dir)
+                if os.path.isdir(os.path.join(base_dir, d))
+            ]
+        except OSError:
+            return None
+        time_dirs = []
+        for d in entries:
+            try:
+                time_dirs.append((float(d), d))
+            except ValueError:
+                continue
+        if not time_dirs:
+            return None
+        return os.path.join(base_dir, max(time_dirs, key=lambda x: x[0])[1])
+
+    def _read_slice_averages(case_dir):
+        post_dir = os.path.join(case_dir, "postProcessing")
+        if not os.path.isdir(post_dir):
+            return []
+        slices = []
+        for entry in os.listdir(post_dir):
+            if not entry.startswith("avgsurf"):
+                continue
+            suffix = entry.replace("avgsurf", "", 1)
+            if not suffix.isdigit():
+                continue
+            slice_idx = int(suffix)
+            time_dir = _get_latest_time_dir(os.path.join(post_dir, entry))
+            if not time_dir:
+                continue
+            data_path = os.path.join(time_dir, "surfaceFieldValue.dat")
+            if not os.path.isfile(data_path):
+                continue
+            try:
+                with open(data_path, "r") as f:
+                    lines = [line.strip() for line in f if line.strip() and not line.startswith("#")]
+            except OSError:
+                continue
+            if not lines:
+                continue
+            last = lines[-1]
+            parts = last.split()
+            if len(parts) < 2:
+                continue
+            try:
+                p_avg = float(parts[1])
+            except ValueError:
+                continue
+            u_mag = None
+            match = re.search(r"\(([^)]+)\)", last)
+            if match:
+                try:
+                    comps = [float(v) for v in match.group(1).split()]
+                    if len(comps) >= 3:
+                        u_mag = math.sqrt(comps[0] ** 2 + comps[1] ** 2 + comps[2] ** 2)
+                except ValueError:
+                    u_mag = None
+            slices.append((slice_idx, p_avg, u_mag))
+        slices.sort(key=lambda s: s[0])
+        return slices
+
+    def _draw_line_plot(c, x, y, w, h, xs, ys, caption, y_label, x_label):
+        if not xs or not ys:
+            c.setFont("Helvetica", 9)
+            c.drawCentredString(x + w / 2, y + h / 2, "No data")
+            return
+        min_y = min(ys)
+        max_y = max(ys)
+        if min_y == max_y:
+            min_y -= 1.0
+            max_y += 1.0
+        min_x = min(xs)
+        max_x = max(xs)
+        if min_x == max_x:
+            min_x -= 1.0
+            max_x += 1.0
+        plot_left = x + 50
+        plot_right = x + w - 10
+        plot_bottom = y + 28
+        plot_top = y + h - 22
+        c.line(plot_left, plot_bottom, plot_left, plot_top)
+        c.line(plot_left, plot_bottom, plot_right, plot_bottom)
+        pts = []
+        for xi, yi in zip(xs, ys):
+            px = plot_left + (xi - min_x) / (max_x - min_x) * (plot_right - plot_left)
+            py = plot_bottom + (yi - min_y) / (max_y - min_y) * (plot_top - plot_bottom)
+            pts.append((px, py))
+        c.setStrokeColorRGB(0.1, 0.4, 0.8)
+        for i in range(1, len(pts)):
+            c.line(pts[i - 1][0], pts[i - 1][1], pts[i][0], pts[i][1])
+        c.setStrokeColorRGB(0, 0, 0)
+        c.setFont("Helvetica", 7)
+        for i in range(5):
+            y_val = min_y + (max_y - min_y) * i / 4
+            y_pos = plot_bottom + (y_val - min_y) / (max_y - min_y) * (plot_top - plot_bottom)
+            c.line(plot_left - 3, y_pos, plot_left, y_pos)
+            c.drawRightString(plot_left - 5, y_pos - 2, f"{y_val:.2f}")
+        for xi in xs:
+            x_pos = plot_left + (xi - min_x) / (max_x - min_x) * (plot_right - plot_left)
+            c.line(x_pos, plot_bottom, x_pos, plot_bottom - 3)
+            c.drawCentredString(x_pos, y + 14, f"{xi:g}")
+        c.setFont("Helvetica", 8)
+        c.drawCentredString(x + w / 2, y + 6, x_label)
+        c.saveState()
+        c.translate(x + 14, y + h / 2)
+        c.rotate(90)
+        c.drawCentredString(0, 0, y_label)
+        c.restoreState()
+        c.setFont("Helvetica-Oblique", 10)
+        c.drawCentredString(x + w / 2, y - 10, caption)
 
     # 1) Extract CFD data from the specified case directory
     cfd_data = extract_cfd_data_from_files(cfd_dir) or {}
@@ -62,7 +184,7 @@ def generate_airway_report(
     # Default the date if not specified
     if not date_of_report:
         date_of_report = time.strftime("%Y-%m-%d %H:%M:%S")
-        
+
     # 3) Find all ParaView images if requested
     paraview_images = []
     if include_all_paraview_images and os.path.exists(cfd_dir):
@@ -70,22 +192,21 @@ def generate_airway_report(
         patterns = [
             "p_cut_*.png",      # Pressure cut planes
             "p_full_*.png",     # Pressure surface views
-            "v_cut_*.png",      # Velocity cut planes  
+            "v_cut_*.png",      # Velocity cut planes
             "v_full_*.png",     # Velocity surface views
             "v_streamlines*.png"   # Streamline visualizations
         ]
-        
+
         for pattern in patterns:
             pattern_path = os.path.join(cfd_dir, pattern)
             paraview_images.extend(sorted(glob.glob(pattern_path)))
-        
+
         # Remove duplicates and already-used images
         excluded_images = {cfd_pressure_plot_path, cfd_velocity_plot_path, postprocessed_image_path}
         paraview_images = [img for img in paraview_images if img not in excluded_images]
 
     # Create PDF canvas with letter page size
     try:
-        
         c = canvas.Canvas(pdf_path, pagesize=letter)
         width, height = letter
         c.setTitle("Upper Airway Analysis Report")
@@ -101,6 +222,11 @@ def generate_airway_report(
         except (TypeError, ValueError):
             min_csa = None
 
+        try:
+            airway_volume = float(airway_volume) if airway_volume is not None else None
+        except (TypeError, ValueError):
+            airway_volume = None
+
         #
         # ---------------- PAGE 1 ----------------
         #
@@ -111,9 +237,9 @@ def generate_airway_report(
 
         # Header: Analysis Type + Date
         c.setFont("Helvetica", 12)
-        analysis_text = f"Analysis Type: {analysis_type}"
+        analysis_text = f"Analysis Type: {_safe_text(analysis_type, 'CFD Simulation')}"
         c.drawString(50, height - 80, analysis_text)
-        c.drawRightString(width - 50, height - 80, f"Processing Date: {date_of_report}")
+        c.drawRightString(width - 50, height - 80, f"Processing Date: {_safe_text(date_of_report)}")
 
         y_position = height - 110
 
@@ -123,9 +249,9 @@ def generate_airway_report(
         c.setFont("Helvetica-Bold", 14)
         c.drawString(50, y_position, "Patient Information:")
         c.setFont("Helvetica", 12)
-        c.drawString(70, y_position - 20, f"Name: {patient_name}")
-        c.drawString(70, y_position - 35, f"Date of Birth: {patient_dob}")
-        c.drawString(70, y_position - 50, f"Physician: {physician}")
+        c.drawString(70, y_position - 20, f"Name: {_safe_text(patient_name)}")
+        c.drawString(70, y_position - 35, f"Date of Birth: {_safe_text(patient_dob)}")
+        c.drawString(70, y_position - 50, f"Physician: {_safe_text(physician)}")
 
         y_position -= 80
 
@@ -137,8 +263,8 @@ def generate_airway_report(
         c.setFont("Helvetica", 12)
 
         # Prepare strings
-        airway_volume_str = airway_volume if airway_volume else "Not calculated"
-        min_csa_str = f"{min_csa:.2f}" if min_csa else "Not calculated"
+        airway_volume_str = f"{airway_volume:.2f}" if airway_volume is not None else "Not calculated"
+        min_csa_str = f"{min_csa:.2f}" if min_csa is not None else "Not calculated"
         press_drop_pa_str = "Not calculated"
         press_drop_kpa_str = "N/A"
         if pressure_drop_pa is not None:
@@ -151,10 +277,9 @@ def generate_airway_report(
         airway_resistance_str = f"{airway_resistance:.2f}" if airway_resistance is not None else "Not calculated"
 
         # Draw them
-        c.drawString(70, y_position - 20, airway_volume_str)
-        c.drawString(70, y_position - 35, f"Minimum Cross-Sectional Area: {min_csa_str} mm² (rough estimate)") ##TODO: Remove the rough estimate label when using final min CSA function
-        c.drawString(70, y_position - 50, f"Pressure Drop: {press_drop_kpa_str} kPa ({press_drop_pa_str} Pa)")
-        c.drawString(70, y_position - 65, f"Inlet Velocity: {inlet_velocity:.3f} m/s")
+        c.drawString(70, y_position - 20, f"Airway volume: {airway_volume_str} mm³")
+        c.drawString(70, y_position - 35, f"Minimum Cross-Sectional Area: {min_csa_str} mm²")
+        c.drawString(70, y_position - 50, f"Pressure Drop: {press_drop_pa_str} Pa ({press_drop_kpa_str} kPa)")
         if inlet_velocity is not None:
             c.drawString(70, y_position - 65, f"Inlet Velocity: {inlet_velocity:.3f} m/s")
         else:
@@ -230,50 +355,50 @@ def generate_airway_report(
 
         y_position = height - 90
         c.setFont("Helvetica", 12)
-        c.drawString(50, y_position, "Airflow velocity and pressure contours shown below.")
+        c.drawString(50, y_position, "Airflow velocity and pressure summary plots shown below.")
         y_position -= 40
 
-        # Title for the CFD images
-        c.setFont("Helvetica-Bold", 14)
-        c.drawString(50, y_position, "CFD Plots (Pressure & Velocity):")
-        y_position -= 20
-        c.setFont("Helvetica", 12)
+        slice_avgs = _read_slice_averages(cfd_dir)
 
-        if (cfd_pressure_plot_path and os.path.exists(cfd_pressure_plot_path)
-                and cfd_velocity_plot_path and os.path.exists(cfd_velocity_plot_path)):
-
-            image_width = 400
-            image_height = 250
-            x_centered = (width - image_width) / 2
-
-            # 1) Pressure plot
-            c.drawImage(
-                cfd_pressure_plot_path, 
-                x_centered, 
-                y_position - image_height, 
-                width=image_width, 
-                height=image_height,
-                preserveAspectRatio=True,
+        if slice_avgs:
+            slice_nums = [s[0] for s in slice_avgs]
+            p_vals = [s[1] for s in slice_avgs]
+            u_pairs = [(s[0], s[2]) for s in slice_avgs if s[2] is not None]
+            u_xs = [p[0] for p in u_pairs]
+            u_vals = [p[1] for p in u_pairs]
+            plot_width = 470
+            plot_height = 200
+            x_left = 60
+            y_plot = y_position - plot_height - 10
+            _draw_line_plot(
+                c,
+                x_left,
+                y_plot,
+                plot_width,
+                plot_height,
+                slice_nums,
+                p_vals,
+                "Figure 2: Average Pressure by Slice",
+                "Pressure (Pa)",
+                "Slice Number"
             )
-            c.setFont("Helvetica-Oblique", 10)
-            c.drawCentredString(x_centered + image_width / 2, y_position - image_height - 10, "Figure 2: Pressure Plot")
-
-            y_position -= (image_height + 40)  # space below figure
-
-            # 2) Velocity plot
-            c.drawImage(
-                cfd_velocity_plot_path, 
-                x_centered, 
-                y_position - image_height,
-                width=image_width,
-                height=image_height,
-                preserveAspectRatio=True,
-            )
-            c.drawCentredString(x_centered + image_width / 2, y_position - image_height - 10, "Figure 3: Velocity Plot")
-
-            y_position -= (image_height + 30)
+            if u_vals:
+                y_plot = y_plot - plot_height - 80
+                _draw_line_plot(
+                    c,
+                    x_left,
+                    y_plot,
+                    plot_width,
+                    plot_height,
+                    u_xs,
+                    u_vals,
+                    "Figure 3: Average Velocity by Slice",
+                    "Air Velocity (m/s)",
+                    "Slice Number"
+                )
+            y_position = y_plot - 40
         else:
-            c.drawString(50, y_position - 30, "CFD pressure/velocity plots not provided or not found.")
+            c.drawString(50, y_position - 30, "CFD slice-average plots not provided or not found.")
             y_position -= 60
 
         # If preview watermark is desired
@@ -305,22 +430,20 @@ def generate_airway_report(
                     if not os.path.exists(img_path):
                         continue
 
-                    # Caption logic (you can reuse yours)
+                    # Caption logic
                     img_filename = os.path.basename(img_path)
                     if "p_full" in img_filename:
                         caption = f"Pressure Distribution Surface View {img_filename.split('_')[-1].split('.')[0]}"
                     elif "v_full" in img_filename:
                         caption = f"Velocity Distribution Surface View {img_filename.split('_')[-1].split('.')[0]}"
                     elif "p_cut" in img_filename:
-                        caption = f"Pressure Distribution (Section) - {img_filename.split('_')[-1].split('.')[0].capitalize()} View"
+                        caption = f"Pressure Distribution (Section {img_filename.split('_')[-1].split('.')[0].capitalize()})"
                     elif "v_cut" in img_filename:
-                        caption = f"Velocity Distribution (Section) - {img_filename.split('_')[-1].split('.')[0].capitalize()} View"
+                        caption = f"Velocity Distribution (Section {img_filename.split('_')[-1].split('.')[0].capitalize()})"
                     elif "v_streamlines" in img_filename:
                         # Extract number from v_streamlines1.png -> "1"
                         number = img_filename.replace("v_streamlines", "").replace(".png", "")
                         caption = f"Streamline Visualization {number}" if number else "Streamline Visualization"
-                    else:
-                        caption = f"CFD Visualization: {img_filename}"
 
                     # Load to compute aspect and size
                     with Image.open(img_path) as img:

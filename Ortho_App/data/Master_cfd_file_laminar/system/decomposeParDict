@@ -9,35 +9,13 @@ FoamFile
 {
     version     2.0;
     format      ascii;
-    class       volScalarField;
-    object      k;
+    class       dictionary;
+    object      decomposeParDict;
 }
 // * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
 
-dimensions      [0 2 -2 0 0 0 0];
+numberOfSubdomains  4;
 
-internalField   uniform 0.003557389; //30lpm = 0.003557389
-
-boundaryField
-{
-    inlet
-    {
-        type            fixedValue;
-        value           $internalField; // 1e-05*u^2/Re < k < 0.1*u^2/Re (2.1e-07 - 0.002113)
-    }
-
-    outlet
-    {
-        type            zeroGradient;
-    }
-
-    wall
-    {
-        type            fixedValue; //kLowReWallFunction;
-        value           uniform 0;
-    }
-
-}
-
+method          scotch; //hierarchical;
 
 // ************************************************************************* //

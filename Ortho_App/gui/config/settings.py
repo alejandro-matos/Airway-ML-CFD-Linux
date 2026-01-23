@@ -136,8 +136,8 @@ EXTERNAL_APPS: Dict[str, Dict[str, Any]] = {
         "REQUIRED": True
     },
     "OPENFOAM": {
-        "PATH": r"/usr/bin/openfoam",
-        "VERSION": "2412",
+        "PATH": r"/usr/bin/openfoam2306",
+        "VERSION": "2306",
         "REQUIRED": True
     },
     "PARAVIEW": {
@@ -182,7 +182,7 @@ TAB2_SETTINGS: Dict[str, Any] = {
         "BROWSE_BUTTON":   {"width": 220, "height": 50},
         "INFO_BUTTON":     {"DIAMETER": 30},
         "ENTRY_WIDTH":     300,
-        "DIALOG_SIZE":     (1000, 700),
+        "DIALOG_SIZE":     (1250, 540),
         "TREEVIEW_FONT":       ("Arial", 16),
         "TREEVIEW_ROWHEIGHT":  28,
         "TREEVIEW_HEADING_FONT":("Arial", 18),

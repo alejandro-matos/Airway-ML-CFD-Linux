@@ -19,11 +19,6 @@ dimensions      [0 1 -1 0 0 0 0];
 internalField   uniform (0 0 0);
 
 #include "pvfr.txt"
-//$vfr
-//
-// txtfile
-//(vfr*1.122)/60000;
-//#inputMode merge
 
 boundaryField
 {
@@ -41,8 +36,14 @@ boundaryField
     outlet
     {
         type            flowRateOutletVelocity;
-        //massFlowRate    constant $vfr;
-        massFlowRate    constant 0.0005608; // 40LPM = 0.0007478; // 30LPM = 0.0005608;
+        massFlowRate    constant #codeStream
+        {
+            code
+            #{
+               scalar result = ($vfr * 1.122) / 60000;
+               os  << result;
+            #};
+        };
         rhoOutlet       1.122;
     }
 }

@@ -116,7 +116,7 @@ class AirwaySegmentator:
                     '-device', 'cuda',
                     '-f', 'all',
                     '-step_size', '0.7', # Increased from default 0.5
-                    '--disable_tta',  # TODO: Disable for 5x faster inference but segmentation is less accurate
+                    #'--disable_tta',  # Disable for 5x faster inference but segmentation is a bit less accurate
                     '-npp', '8',  # Increase preprocessing threads (up from default 2)
                     '-nps', '8',  # Increase segmentation export threads (up from default 2)
                 ],
@@ -456,9 +456,12 @@ class AirwaySegmentator:
             if self.input_type == "nifti":
                 # Use the provided NIfTI file directly
                 nifti_path = Path(self.input_file)
+                stem = nifti_path.stem
+                if nifti_path.suffixes[-2:] == [".nii", ".gz"]:
+                    stem = Path(stem).stem
+                target_path = self.nifti_folder / f"{stem}.nii.gz"
                 self.update_progress("Using provided NIfTI file...", 10, "Using provided NIfTI file...")
                 # Copy NIfTI file into expected folder
-                target_path = self.nifti_folder / (nifti_path.stem + ".nii.gz")
                 target_path.write_bytes(nifti_path.read_bytes())
                 nifti_path = target_path
             else:

@@ -9,34 +9,11 @@ FoamFile
 {
     version     2.0;
     format      ascii;
-    class       volScalarField;
-    object      omega;
+    class       dictionary;
+    object      turbulenceProperties;
 }
 // * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
 
-dimensions      [0 0 -1 0 0 0 0];
-
-internalField   uniform 150.39867;
-
-boundaryField
-{
-    inlet
-    {
-        type            fixedValue;
-        value           $internalField; // u/l < w < 10*u/l (1300 - 13000)
-    }
-
-    outlet
-    {
-        type            zeroGradient;
-    }
-
-    wall
-    {
-        type            omegaWallFunction;
-        value           uniform 1.37e7; // 10 * 6 * nu / ( 0.075 * y_center^2 )
-    }
-}
-
+simulationType      laminar;
 
 // ************************************************************************* //

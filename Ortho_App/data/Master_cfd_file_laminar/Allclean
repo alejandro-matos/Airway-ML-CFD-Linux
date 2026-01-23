@@ -1,7 +1,7 @@
 #!/bin/sh
-source /usr/lib/openfoam/openfoam2412/etc/bashrc
-cd "$(dirname "$0")" || exit                             # Run from this directory
-. ${WM_PROJECT_DIR:?}/bin/tools/CleanFunctions    # Tutorial clean functions
+source /opt/openfoam/OpenFOAM-v2306/etc/bashrc
+cd "${0%/*}" || exit                                # Run from this directory
+. ${WM_PROJECT_DIR:?}/bin/tools/RunFunctions        # Tutorial run functions
 #---------------------------------*- sh -*-------------------------------------
 # =========                 |
 # \\      /  F ield         | OpenFOAM: The Open Source CFD Toolbox

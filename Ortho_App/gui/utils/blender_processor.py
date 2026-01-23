@@ -7,9 +7,10 @@ This module handles all Blender-related operations including:
 - Creating inlet and outlet geometries
 - Generating assembly preview images
 - Managing Blender process lifecycle and cancellation
+- This script also manages choosing between Master_cfd_file and Master_cfd_file_laminar according to flow rate
 
 Author: Alejandro Matos Camarillo
-Based on OrthoCFD Application
+Based on OrthoCFD Application by Uday Tummala
 """
 
 import os
@@ -78,7 +79,8 @@ class BlenderProcessor:
             except Exception as e:
                 self._log_error(f"Error terminating Blender process: {e}")
     
-    def _setup_blender_environment(self, stl_path, cfd_output_dir):
+
+    def _setup_blender_environment(self, stl_path, cfd_output_dir, template_case="Master_cfd_file"):
         """
         Set up the environment for Blender processing.
         
@@ -102,7 +104,7 @@ class BlenderProcessor:
 
         # Get the root dir of the project
         project_root = Path(__file__).resolve().parents[2]
-        source_dir = project_root / "data" / "Master_cfd_file"
+        source_dir = project_root / "data" / template_case
         
         # Copy CFD template files
         shutil.copytree(source_dir, cfd_output_dir, symlinks=False, ignore=None, 
@@ -191,7 +193,7 @@ class BlenderProcessor:
         self._log_error("STL files were not created within the expected time")
         return False, None, None, None
     
-    def process_geometry(self, stl_path, cfd_output_dir, render_callback=None):
+    def process_geometry(self, stl_path, cfd_output_dir, render_callback=None, template_case="Master_cfd_file"):
         """
         Main method to process geometry using Blender.
         
@@ -220,7 +222,7 @@ class BlenderProcessor:
             
             # Set up environment
             trisurf_dir, project_root, blender_script_path = self._setup_blender_environment(
-                stl_path, cfd_output_dir
+                stl_path, cfd_output_dir, template_case=template_case
             )
             
             self._log_info(f"Starting Blender with STL path: {stl_path}")
@@ -278,7 +280,7 @@ class BlenderProcessor:
             self._log_error(f"Blender processing error: {e}")
             return {"success": False, "error_message": str(e)}
     
-    def process_geometry_async(self, stl_path, cfd_output_dir, completion_callback, render_callback=None):
+    def process_geometry_async(self, stl_path, cfd_output_dir, completion_callback, render_callback=None, template_case="Master_cfd_file"):
         """
         Process geometry asynchronously in a separate thread.
         
@@ -286,16 +288,20 @@ class BlenderProcessor:
             stl_path: Path to the input STL file
             cfd_output_dir: Output directory for CFD files
             completion_callback: Function to call when processing completes (result)
-            render_callback: Optional callback to handle assembly image rendering
+        render_callback: Optional callback to handle assembly image rendering
         """
         def worker():
-            result = self.process_geometry(stl_path, cfd_output_dir, render_callback)
+            result = self.process_geometry(
+                stl_path,
+                cfd_output_dir,
+                render_callback,
+                template_case=template_case
+            )
             completion_callback(result)
         
         thread = threading.Thread(target=worker, daemon=True)
         thread.start()
         return thread
-
 
 # Convenience functions for backward compatibility
 def create_blender_processor(logger=None, progress_callback=None, cancel_check_callback=None):

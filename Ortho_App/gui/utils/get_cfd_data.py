@@ -1,22 +1,5 @@
-import subprocess
-import re
-import numpy as np
 import os
-import argparse
 import math
-
-
-# TODO: Change all -time 20 to -time 100 or whatever number of steps used
-
-def run_command(command, case_dir=None):
-    """Run a shell command and return its output"""
-    if case_dir:
-        # Change to the case directory to run the command
-        command = f"cd {case_dir} && {command}"
-    
-    result = subprocess.run(command, shell=True, capture_output=True, text=True)
-    return result.stdout
-
 
 
 def read_latest_velocity_magnitude(file_path):
@@ -59,8 +42,8 @@ def read_latest_pressure_value(file_path):
     return None
 
 def extract_cfd_data_from_files(case_dir):
-    inlet_file = os.path.join(case_dir, "postProcessing", "avgsurf_in", "0", "surfaceFieldValue.dat")
-    outlet_file = os.path.join(case_dir, "postProcessing", "avgsurf_out", "0", "surfaceFieldValue.dat")
+    inlet_file = os.path.join(case_dir, "postProcessing", "avgsurf1", "0", "surfaceFieldValue.dat")
+    outlet_file = os.path.join(case_dir, "postProcessing", "avgsurf11", "0", "surfaceFieldValue.dat")
 
     inlet_pressure = read_latest_pressure_value(inlet_file)
     outlet_pressure = read_latest_pressure_value(outlet_file)
@@ -79,32 +62,3 @@ def extract_cfd_data_from_files(case_dir):
         results["pressure_drop"] = inlet_pressure - outlet_pressure
 
     return results
-
-
-def main():
-    # Set up command line argument parsing
-    parser = argparse.ArgumentParser(description='Extract pressure and velocity from OpenFOAM case')
-    parser.add_argument('--case', '-c', type=str, help='Path to OpenFOAM case directory', default=os.getcwd())
-    parser.add_argument('--time', '-t', type=str, help='Time to extract (default: 20)', default='20')
-    parser.add_argument('--boundaries', '-b', nargs='+', help='Boundaries to extract (default: inlet and outlet)', 
-                        default=['inlet', 'outlet'])
-    
-    args = parser.parse_args()
-    
-    # Make sure the case directory is an absolute path
-    case_dir = os.path.abspath(args.case)
-    
-    # Check if the directory exists
-    if not os.path.isdir(case_dir):
-        print(f"Error: Case directory '{case_dir}' does not exist.")
-        return
-    
-    boundaries = args.boundaries
-    results = extract_cfd_data(case_dir, time=args.time, boundaries=args.boundaries)
-    # Print or return as you like for CLI usage
-    print("results:", results)
-    return results
-
-if __name__ == "__main__":
-    main()
-    

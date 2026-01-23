@@ -9,41 +9,33 @@ FoamFile
 {
     version     2.0;
     format      ascii;
-    class       volVectorField;
-    object      U;
+    class       volScalarField;
+    object      p;
 }
 // * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
 
-dimensions      [0 1 -1 0 0 0 0];
+dimensions      [0 2 -2 0 0 0 0];
 
-internalField   uniform (0 0 0);
-
-#include "pvfr.txt"
-//$vfr
-//
-// txtfile
-//(vfr*1.122)/60000;
-//#inputMode merge
+internalField   uniform 84694.93;
 
 boundaryField
 {
     inlet
     {
-        type          pressureInletOutletVelocity;
-        value         uniform (0 0 0);
+        type            totalPressure;
+        rho             none;
+        p0              uniform 84694.93;
+        value           $internalField;
     }
 
     wall
     {
-        type            noSlip;
+        type            zeroGradient;
     }
 
     outlet
     {
-        type            flowRateOutletVelocity;
-        //massFlowRate    constant $vfr;
-        massFlowRate    constant 0.0005608; // 40LPM = 0.0007478; // 30LPM = 0.0005608;
-        rhoOutlet       1.122;
+        type            zeroGradient;
     }
 }
 

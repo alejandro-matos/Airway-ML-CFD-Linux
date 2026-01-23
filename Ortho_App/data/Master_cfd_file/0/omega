@@ -16,7 +16,34 @@ FoamFile
 
 dimensions      [0 0 -1 0 0 0 0];
 
-internalField   uniform 150.39867;
+#include "pvfr.txt"
+
+internalField   uniform #codeStream
+ {
+           code
+           #{
+              scalar hyd = 0.0104;
+              scalar TI = 0.0200;
+              scalar TL = 0.00039657;
+
+              // Convert LPM to m^3/s
+              scalar Q = $vfr * 0.001 / 60.0;
+
+              // Compute cross-sectional area
+              scalar area = M_PI * Foam::pow(hyd / 2.0, 2);
+
+              // Velocity magnitude (m/s)
+              scalar vel = Q / area;
+
+              scalar k = (3.0 * Foam::pow(vel * TI, 2)) / 2.0;
+
+              scalar e = (0.09 * Foam::pow(k, 1.5)) / TL;
+
+              scalar result = e / (0.09 * k);
+
+              os  << result;
+           #};
+ };
 
 boundaryField
 {

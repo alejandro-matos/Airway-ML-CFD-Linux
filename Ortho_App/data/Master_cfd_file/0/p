@@ -22,7 +22,6 @@ boundaryField
 {
     inlet
     {
-        //type            zeroGradient;
         type            totalPressure;
         rho             none;
         p0              uniform 84694.93;
@@ -37,8 +36,6 @@ boundaryField
     outlet
     {
         type            zeroGradient;
-        //type            fixedValue;
-        //value           uniform 0;
     }
 }
 

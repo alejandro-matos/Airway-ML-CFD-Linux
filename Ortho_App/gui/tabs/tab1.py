@@ -328,7 +328,7 @@ class Tab1Manager:
         # Create the vertical tab button on the right edge
         self.toggle_panel_button = ctk.CTkButton(
             self.app.main_frame,
-            text="Click to see \nContributors / Team",
+            text="Click for \nContributors / Team\n Information",
             font=UI_SETTINGS["FONTS"]["CONTRIB_BUTTON"],
             fg_color=UI_SETTINGS["COLORS"]["SECONDARY"],
             hover_color=UI_SETTINGS["COLORS"]["NAV_HOVER"],
@@ -384,7 +384,7 @@ class Tab1Manager:
             self.contributors_panel.place_forget()
             
             # Reset button text
-            self.toggle_panel_button.configure(text="Click for \nContributors / Team")
+            self.toggle_panel_button.configure(text="Click for \nContributors / Team\n Information")
             
             # Update state
             self.panel_visible = False

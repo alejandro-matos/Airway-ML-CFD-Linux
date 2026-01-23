@@ -1,8 +1,8 @@
 #!/bin/sh
-source /usr/lib/openfoam/openfoam2412/etc/bashrc
-cd "$(dirname "$0")" || exit                        # Run from this directory
-. ${WM_PROJECT_DIR:?}/bin/tools/RunFunctions        # Tutorial run functions
-#------------------------------------------------------------------------------
+source /opt/openfoam/OpenFOAM-v2306/etc/bashrc
+cd "${0%/*}" || exit
+. "${WM_PROJECT_DIR:?}/bin/tools/RunFunctions"
+# ------------------------------------------------------------------------------
 runApplication surfaceFeatureExtract
 runApplication blockMesh
 runApplication decomposePar
@@ -13,14 +13,24 @@ cp -r 2/polyMesh constant/
 rm -rf 2
 rm -rf processor*
 rm log.decomposePar
+mv "$(pwd)/system/snappyHexMeshDict" "$(pwd)/system/snappyHexMeshDict2"
+mv "$(pwd)/system/snappyHexMeshDict1" "$(pwd)/system/snappyHexMeshDict"
+runApplication decomposePar
+runParallel snappyHexMesh
+# mpirun -np 2 snappyHexMesh -parallel >log.snappy
+runApplication reconstructParMesh -latestTime -mergeTol 1E-06 -noZero
+cp -r 3/polyMesh constant/
+rm -rf 3
+rm -rf processor*
+rm log.decomposePar
 #runApplication checkMesh –latestTime
 runApplication decomposePar
-runParallel simpleFoam
+runParallel $(getApplication)
 # mpirun -np 2 simpleFoam -parallel >log.solver
 runApplication reconstructPar -latestTime
 rm -rf processor*
 value2=$PWD
-VAR="$value2/260/U"
+VAR="$value2/1000/U"
 if [ -e "$VAR" ]
         then
                 echo "Finished"

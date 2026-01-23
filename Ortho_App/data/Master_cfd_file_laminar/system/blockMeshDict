@@ -1,7 +1,7 @@
 /*--------------------------------*- C++ -*----------------------------------*\
 | =========                 |                                                 |
 | \\      /  F ield         | OpenFOAM: The Open Source CFD Toolbox           |
-|  \\    /   O peration     | Version:  v2306                                 |
+|  \\    /   O peration     | Version:  v2012                                 |
 |   \\  /    A nd           | Website:  www.openfoam.com                      |
 |    \\/     M anipulation  |                                                 |
 \*---------------------------------------------------------------------------*/
@@ -10,19 +10,39 @@ FoamFile
     version     2.0;
     format      ascii;
     class       dictionary;
-    object      turbulenceProperties;
+    object      blockMeshDict;
 }
+
 // * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
 
-simulationType      laminar; //RAS;
+#include "bb_min_max.txt"
 
-RAS
-{
-    RASModel        kOmega; //kOmegaSST; //kOmega;
+scale   0.001;
 
-    turbulence      on;
+vertices
+(
+    ($BOUND_MIN_X $BOUND_MIN_Y $BOUND_MIN_Z)  // 0
+    ($BOUND_MAX_X $BOUND_MIN_Y $BOUND_MIN_Z)  // 1
+    ($BOUND_MAX_X $BOUND_MAX_Y $BOUND_MIN_Z)  // 2
+    ($BOUND_MIN_X $BOUND_MAX_Y $BOUND_MIN_Z)  // 3
+    ($BOUND_MIN_X $BOUND_MIN_Y $BOUND_MAX_Z)  // 4
+    ($BOUND_MAX_X $BOUND_MIN_Y $BOUND_MAX_Z)  // 5
+    ($BOUND_MAX_X $BOUND_MAX_Y $BOUND_MAX_Z)  // 6
+    ($BOUND_MIN_X $BOUND_MAX_Y $BOUND_MAX_Z)  // 7
+);
 
-    printCoeffs     on;
-}
+blocks
+(
+    hex (0 1 2 3 4 5 6 7) ($NX $NY $NZ) simpleGrading (1 1 1)
+);
+
+edges
+(
+);
+
+boundary
+(
+
+);
 
 // ************************************************************************* //

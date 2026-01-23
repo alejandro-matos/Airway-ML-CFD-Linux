@@ -39,6 +39,7 @@ from ..utils.icons import create_icon, load_ctk_icon
 from ..utils.open3d_viewer import Open3DViewer
 from ..utils.blender_processor import BlenderProcessor
 from ..utils.stl_assem_image_render import render_assembly
+from ..utils.legacy_cfd_runner import run_cfd as run_legacy_cfd
 
 from gui.config.settings import UI_SETTINGS, TAB4_UI, TAB4_SETTINGS, PATH_SETTINGS
 
@@ -206,11 +207,8 @@ class Tab4Manager:
 
     def _should_confirm_navigation(self):
         """Helper method to check if confirmation is needed before navigation."""
-        # Check if processing is active or if results have been generated
-        return self.processing_active or (
-            hasattr(self, 'preview_button') and 
-            self.preview_button.cget("state") == "normal"
-        )
+        # Check if processing or cancellation is active
+        return self.processing_active or self.progress_section.is_cancellation_in_progress()
 
     def _create_main_content(self):
         """Create the main content area with analysis options on the left and results on the right."""
@@ -248,7 +246,7 @@ class Tab4Manager:
             "   – Upper Airway Segmentation: generate airway prediction from \n\tDICOM/NIfTI.\n"
             "   – Airflow Simulation: segmentation plus airflow & pressure simulation.\n\tSelect flow rate by dragging slider or typing number in box.",
             "2. Click 'Start Processing'.\n3. Switch between the Segmentation, Post‑processed Geometry, \n\tand CFD Simulation tabs to see the results once completed.",
-            "4. Click on 3D render buttons to inspect predicted and post-processed \n\tgeometries more closely.",
+            "4. Click on 3D render buttons to inspect predicted and processed \n\tgeometries more closely.",
             "5. Click “Preview Report” to open a PDF preview of your results.\n6. Click “Save Data” to export results/report to external drive."
         ]
         for instr in instructions:
@@ -304,8 +302,6 @@ class Tab4Manager:
 
         # Create flow rate frame (initially hidden)
         self.flow_rate_frame = ctk.CTkFrame(analysis_section.content, fg_color="transparent")
-        # show it in the same spot you were before
-        self.flow_rate_frame.pack(fill="x", pady=(5, 10))
 
         # Label + slider + entry + unit + info button all side by side
         flow_rate_title = ctk.CTkLabel(
@@ -351,6 +347,8 @@ class Tab4Manager:
             "LPM = Litres Per Minute\nThis is a volumetric measure of the breathing rate commonly used in respiratory medicine.\nWARNING: Simulations were experimentally validated only up to 90 LPM"
         )
         lpm_info_button.pack(side="left",padx=2)
+
+        self._update_processing_details(self.analysis_option.get())
 
     def _update_flow_rate_label(self, value=None):
         """Update the flow rate value when slider changes"""
@@ -515,7 +513,7 @@ class Tab4Manager:
         # Define tab colors
         self.tab_colors = {
             "Segmentation": "#00734d",     # Green for segmentation
-            "Post-processed Geometry": "#006a9f",    # Blue for post-processed
+            "Inlet & Outlet Model": "#006a9f",    # Blue for post-processed
             "CFD Simulation": "#a63600"     # Orange/red for CFD
         }
 
@@ -539,12 +537,12 @@ class Tab4Manager:
         # Store references to tab frames
         self.tab_frames = {
             "Segmentation": self.segmentation_frame,
-            "Post-processed Geometry": self.postprocessing_frame,
+            "Inlet & Outlet Model": self.postprocessing_frame,
             "CFD Simulation": self.cfd_frame
         }
         
         # Create the tab buttons with even spacing
-        tab_names = ["Segmentation", "Post-processed Geometry", "CFD Simulation"]
+        tab_names = ["Segmentation", "Inlet & Outlet Model", "CFD Simulation"]
         self.tab_buttons = {}
         
         # Configure tabs container to distribute tabs evenly
@@ -735,26 +733,27 @@ class Tab4Manager:
 
 
     def _update_processing_details(self, choice):
-        """Update the processing details based on selected analysis type"""
         details = {
-            "Upper Airway Segmentation": 
+            "Upper Airway Segmentation": (
                 "This will perform automatic segmentation of the upper airway "
-                "from the DICOM images.",
-            
-            "Segmentation + Airflow Simulation":
+                "from the DICOM images."
+            ),
+            "Segmentation + Airflow Simulation": (
                 "This will first perform airway segmentation, followed by CFD "
                 "analysis to simulate airflow patterns and pressure changes."
+            )
         }
-        
+
         self.processing_details_label.configure(
             text=details.get(choice, "Please select an analysis type to proceed.")
         )
-        
-        # Show/hide flow rate controls based on selection
+
         if choice == "Segmentation + Airflow Simulation":
-            self.flow_rate_frame.pack(fill="x", pady=(5, 10))
+            if not self.flow_rate_frame.winfo_ismapped():
+                self.flow_rate_frame.pack(fill="x", pady=(5, 10))
         else:
-            self.flow_rate_frame.pack_forget()
+            if self.flow_rate_frame.winfo_ismapped():
+                self.flow_rate_frame.pack_forget()
 
     def _validate_and_start_processing(self):
         """Validate selection and start processing, skipping segmentation if STL already exists"""
@@ -1155,7 +1154,7 @@ class Tab4Manager:
             # Select segmentation tab to show loaded data
             self._select_tab("Segmentation")
             
-            # Proceed directly to Blender stage for CFD processing using the new processor
+            # Proceed directly to Blender stage for CFD processing
             self.update_progress("Creating inlet and outlet in Blender…", 50, "Creating inlet and outlet in Blender…")
             
             # Set up a CFD output directory based on flow rate
@@ -1164,8 +1163,8 @@ class Tab4Manager:
             # Reset cancellation flag before starting Blender
             self.cancel_requested = False
             
-            # Use the new Blender processor instead of the old worker method
-            self._start_blender_processing(self.current_stl_path, cfd_output_dir)
+            # Use the Blender processor
+            self._start_blender_processing(self.current_stl_path, cfd_output_dir,)
             
         except Exception as e:
             error_msg = f"Error using existing segmentation: {str(e)}"
@@ -1276,9 +1275,12 @@ class Tab4Manager:
             postprocessed_path = str(assem[0]) if assem else None
             self._update_render_display("postprocessing", postprocessed_path)
             
-            # CFD tab - look for any CFD image
-            cfd_files = list(Path(cfd_base_path).glob("*_CFD.png"))
-            cfd_path = str(cfd_files[0]) if cfd_files else None
+            # CFD tab - prefer standard ParaView outputs
+            cfd_candidates = [
+                Path(cfd_base_path) / "p_cut_1.png",
+                Path(cfd_base_path) / "v_cut_1.png",
+            ]
+            cfd_path = next((str(p) for p in cfd_candidates if p.exists()), None)
             self._update_render_display("cfd", cfd_path)
             
             # Select CFD tab as it's the final result
@@ -1633,7 +1635,7 @@ class Tab4Manager:
         # Map stage to tab name
         tab_name_map = {
             "segmentation": "Segmentation",
-            "postprocessing": "Post-processed Geometry", 
+            "postprocessing": "Inlet & Outlet Model", 
             "cfd": "CFD Simulation"
         }
         
@@ -1709,7 +1711,7 @@ class Tab4Manager:
                     
                     # Add caption
                     if stage == "postprocessing":
-                        caption_text = "Post-processed model with inlet (green), and outlet (red) components"
+                        caption_text = "Processed model with inlet (green), and outlet (red) components"
                     else:
                         caption_text = "Segmentation preview image"
                         
@@ -1815,11 +1817,16 @@ class Tab4Manager:
                 self.app.after(0, lambda: self._on_blender_success(result, cfd_output_dir))
             
             # Start async processing with render callback
+            flow = self.flow_rate.get()
+            template_case = "Master_cfd_file_laminar" if flow < 15 else "Master_cfd_file"
+
+
             self.blender_processor.process_geometry_async(
                 stl_path=stl_path,
                 cfd_output_dir=cfd_output_dir,
                 completion_callback=on_blender_complete,
-                render_callback=self._render_assembly_image
+                render_callback=self._render_assembly_image,
+                template_case=template_case
             )
             
         except Exception as e:
@@ -1833,7 +1840,7 @@ class Tab4Manager:
             # Update UI with assembly image if available
             if "assembly_image_path" in result:
                 self._update_render_display("postprocessing", result["assembly_image_path"])
-                self._select_tab("Post-processed Geometry")
+                self._select_tab("Inlet & Outlet Model")
             
             # Check if cancellation was requested during UI updates
             if self.cancel_requested:
@@ -1854,7 +1861,7 @@ class Tab4Manager:
             
             # Start CFD processing
             threading.Thread(
-                target=self._cfd_worker,
+                target=self._cfd_worker_legacy,
                 args=(cfd_output_dir,),
                 daemon=True
             ).start()
@@ -1894,52 +1901,58 @@ class Tab4Manager:
         
         return os.path.join(base_path, cfd_dir)
 
-    def _cfd_worker(self, cfd_dir):
+    def _cfd_worker_legacy(self, cfd_dir):
+        """
+        Simplified CFD runner that mirrors the GUI_ortho workflow.
+        It delegates to run_legacy_cfd (Allclean -> combine STLs -> Allrun).
+        """
         try:
-            # Reset the cancellation processed flag at the start
             self._cancellation_processed = False
-
-            # Make sure cancel button is properly enabled
             self.app.after(0, lambda: self.progress_section.set_cancel_callback(self._request_cancel))
-            
+
+            if self.cancel_requested:
+                return
+
+            self.logger.log_info(f"Starting legacy CFD run in {cfd_dir}")
+            success, msg = run_legacy_cfd(
+                case_dir=cfd_dir,
+                flow_rate_lpm=self.flow_rate.get(),
+                logger=self.logger
+            )
+
+            if self.cancel_requested:
+                return
+
+            if success:
+                self.app.after(0, lambda: self._on_sim_done(cfd_dir))
+            else:
+                self.app.after(0, lambda: self._on_worker_error("Simulation", msg))
+
+        except Exception as e:
+            if not self.cancel_requested:
+                msg = f"{type(e).__name__}: {e}"
+                self.logger.log_error(msg)
+                self.app.after(0, lambda: self._on_worker_error("Simulation", msg))
+
+    def _cfd_worker(self, cfd_dir):
+        """
+        Order of operations:
+        1) Ensure Allclean/Allrun exist + executable
+        2) Run Allclean
+        3) Write pvfr.txt (after clean so it can't be deleted)
+        4) Build combined.stl (after clean so it can't be deleted)
+        5) Kick off residual monitor
+        6) Run Allrun
+        """
+        try:
+            self._cancellation_processed = False
+            self.app.after(0, lambda: self.progress_section.set_cancel_callback(self._request_cancel))
+
             dirs = str(cfd_dir)
 
-            # 1. Write flow rate to pvfr.txt
-            step0 = os.path.join(dirs, "0")
-            os.makedirs(step0, exist_ok=True)
-            with open(os.path.join(step0, "pvfr.txt"), "w") as f:
-                f.write(f"vfr {self.flow_rate.get():.1f};\n#inputMode merge")
-
-            # 2. Combine STL files
-            surf_dir = os.path.join(dirs, "constant", "triSurface")
-            if not os.path.isdir(surf_dir):
-                raise FileNotFoundError(f"triSurface directory not found: {surf_dir}")
-
-            # Check for cancellation after each major step
-            if self.cancel_requested:
-                return
-
-            # remove old combined.stl
-            subprocess.run(["rm", "-f", "combined.stl"], cwd=surf_dir, check=True)
-            # cat all .stl into combined.stl
-            subprocess.run("cat *.stl >> combined.stl", cwd=surf_dir, shell=True, check=True)
-
-            if not os.path.exists(os.path.join(surf_dir, "combined.stl")):
-                raise FileNotFoundError("Failed to create combined.stl")
-
-            # Check for cancellation again
-            if self.cancel_requested:
-                return
-
-            # 3. Kick off residual monitoring in background with daemon=True
-            self.residual_monitor_thread = threading.Thread(
-                target=self._monitor_residuals, 
-                args=(dirs,), 
-                daemon=True  # Ensure this is a daemon thread so it exits when the main thread exits
-            )
-            self.residual_monitor_thread.start()
-
-            # 4. Ensure Allclean/Allrun exist and are executable
+            # ----------------------------
+            # 0) Ensure scripts exist + executable
+            # ----------------------------
             for script in ("Allclean", "Allrun"):
                 path = os.path.join(dirs, script)
                 if not os.path.isfile(path):
@@ -1948,64 +1961,115 @@ class Tab4Manager:
                     os.chmod(path, 0o755)
                     self.logger.log_info(f"Made {script} executable")
 
-            # Check for cancellation again
             if self.cancel_requested:
                 return
 
-            # 5. Run Allclean then Allrun, storing the process reference
-            for script in ("Allclean", "Allrun"):
-                if self.cancel_requested:
-                    return
-                    
-                self.logger.log_info(f"Running {script} in {dirs}")
-                self.current_process = subprocess.Popen(
-                    [f"./{script}"], 
-                    cwd=dirs, 
-                    stdout=subprocess.PIPE,
-                    stderr=subprocess.PIPE,
-                    universal_newlines=True
-                )
-                
-                # Use the updated stream processing method to handle output
-                self._stream_subprocess_output(
-                    self.current_process, 
-                    f"CFD {script}", 
-                    85
-                )
-                
-                # Check if process failed
-                if self.current_process.returncode != 0:
-                    stderr = self.current_process.stderr.read()
-                    raise subprocess.CalledProcessError(
-                        self.current_process.returncode,
-                        script,
-                        output=None,
-                        stderr=stderr
-                    )
+            # ----------------------------
+            # 1) Run Allclean FIRST
+            # ----------------------------
+            self.logger.log_info(f"Running Allclean in {dirs}")
+            self.current_process = subprocess.Popen(
+                ["./Allclean"],
+                cwd=dirs,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,   # merge stderr into stdout so you don't lose errors
+                universal_newlines=True,
+                bufsize=1
+            )
+            self._stream_subprocess_output(self.current_process, "CFD Allclean", 85)
 
-            # 6. All done—back to main thread if not cancelled
+            if self.current_process.returncode != 0:
+                raise subprocess.CalledProcessError(self.current_process.returncode, "Allclean")
+
+            if self.cancel_requested:
+                return
+
+            # ----------------------------
+            # 2) Write flow rate file AFTER Allclean
+            # ----------------------------
+            step0 = os.path.join(dirs, "0")
+            os.makedirs(step0, exist_ok=True)
+            with open(os.path.join(step0, "pvfr.txt"), "w") as f:
+                f.write(f"vfr {self.flow_rate.get():.1f};\n#inputMode merge")
+
+            if self.cancel_requested:
+                return
+
+            # ----------------------------
+            # 3) Combine STL files AFTER Allclean
+            # ----------------------------
+            surf_dir = os.path.join(dirs, "constant", "triSurface")
+            if not os.path.isdir(surf_dir):
+                raise FileNotFoundError(f"triSurface directory not found: {surf_dir}")
+
+            # Safety: ensure there are STL files to combine
+            stls = [fn for fn in os.listdir(surf_dir) if fn.lower().endswith(".stl") and fn != "combined.stl"]
+            if not stls:
+                raise FileNotFoundError(f"No .stl files found in {surf_dir} to build combined.stl")
+
+            # Overwrite (>) not append (>>), so you never accidentally grow the file
+            combined_path = os.path.join(surf_dir, "combined.stl")
+            subprocess.run(["rm", "-f", "combined.stl"], cwd=surf_dir, check=True)
+
+            # Use a shell pipeline only for globbing; keep it explicit and overwrite
+            subprocess.run("cat *.stl > combined.stl", cwd=surf_dir, shell=True, check=True)
+
+            if (not os.path.exists(combined_path)) or os.path.getsize(combined_path) == 0:
+                raise FileNotFoundError("combined.stl was not created or is empty")
+
+            if self.cancel_requested:
+                return
+
+            # ----------------------------
+            # 4) Start residual monitoring AFTER inputs are ready
+            # ----------------------------
+            self.residual_monitor_thread = threading.Thread(
+                target=self._monitor_residuals,
+                args=(dirs,),
+                daemon=True
+            )
+            self.residual_monitor_thread.start()
+
+            if self.cancel_requested:
+                return
+
+            # ----------------------------
+            # 5) Run Allrun
+            # ----------------------------
+            self.logger.log_info(f"Running Allrun in {dirs}")
+            self.current_process = subprocess.Popen(
+                ["./Allrun"],
+                cwd=dirs,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                universal_newlines=True,
+                bufsize=1
+            )
+            self._stream_subprocess_output(self.current_process, "CFD Allrun", 85)
+
+            if self.current_process.returncode != 0:
+                raise subprocess.CalledProcessError(self.current_process.returncode, "Allrun")
+
+            # ----------------------------
+            # 6) Done
+            # ----------------------------
             if not self.cancel_requested:
                 self.app.after(0, lambda: self._on_sim_done(cfd_dir))
             else:
                 self.app.after(0, self._on_sim_cancelled)
 
         except subprocess.CalledProcessError as e:
-            # Only handle errors if not cancelled (since cancellation will cause errors)
             if not self.cancel_requested:
-                msg = (
-                    f"{e.cmd!r} failed (code {e.returncode}).\n"
-                    f"Output: {e.output or 'n/a'}\n"
-                    f"Error: {e.stderr or 'n/a'}"
-                )
+                msg = f"{e.cmd!r} failed (code {e.returncode})."
                 self.logger.log_error(msg)
                 self.app.after(0, lambda: self._on_worker_error("Simulation", msg))
 
         except Exception as e:
-            # Only handle errors if not cancelled
             if not self.cancel_requested:
                 msg = f"{type(e).__name__}: {e}"
                 self.logger.log_error(msg)
                 self.app.after(0, lambda: self._on_worker_error("Simulation", msg))
+
 
     def _on_sim_done(self, cfd_dir):
         """Process and visualize CFD results after simulation completes."""
@@ -2061,8 +2125,6 @@ class Tab4Manager:
             # Enable preview and export buttons now that everything is done
             self.preview_button.configure(state="normal")
             self.export_button.configure(state="normal")
-
-            # self.prune_cfd_folder(cfd_dir) # Comment out if not wanting to remove log files and other supplemental files # TODO: Uncomment this
             
         except Exception as e:
             error_msg = f"Error in post-processing: {str(e)}"
@@ -2112,35 +2174,33 @@ class Tab4Manager:
                 self.logger.log_error(f"ParaView process failed with return code: {process.returncode}")
                 return False
             
-            # 3. Create CFD-tagged copies of generated images
-            for img in ["p_cut_1.png", "v_cut_1.png"]:
-                img_path = os.path.join(cfd_dir, img)
-                if os.path.exists(img_path):
-                    # Create CFD-tagged copy
-                    cfd_img = img.replace(".png", "_CFD.png")
-                    cfd_img_path = os.path.join(cfd_dir, cfd_img)
-                    shutil.copy(img_path, cfd_img_path)
-                    self.logger.log_info(f"Created tagged copy: {cfd_img}")
-            
             return True
             
         except Exception as e:
             self.logger.log_error(f"Error running ParaView: {str(e)}")
             return False
     
-    def autocrop_whitespace(self, folder, pattern="*.png"):
+    def autocrop_whitespace(self, folder, pattern="*.png", ignore_axes=True):
         # Crops out the white space in the images. Did this to not modify the paraview script provided by Uday
         for fname in glob.glob(os.path.join(folder, pattern)):
-            img = Image.open(fname)
-            # create a white background image the same size
-            bg = Image.new(img.mode, img.size, (255,255,255))
-            # find the bounding box of the non-white area
-            diff = ImageChops.difference(img, bg)
-            bbox = diff.getbbox()
-            if bbox:
-                cropped = img.crop(bbox)
-                cropped.save(fname)  # overwrite
-                print(f"Cropped whitespace from {os.path.basename(fname)}")
+            with Image.open(fname) as img:
+                work_img = img
+                if ignore_axes:
+                    work_img = img.copy()
+                    width, height = work_img.size
+                    corner = int(min(width, height) * 0.12)
+                    corner = max(40, min(corner, 120))
+                    draw = ImageDraw.Draw(work_img)
+                    draw.rectangle([0, height - corner, corner, height], fill=(255, 255, 255))
+                # create a white background image the same size
+                bg = Image.new(work_img.mode, work_img.size, (255, 255, 255))
+                # find the bounding box of the non-white area
+                diff = ImageChops.difference(work_img, bg)
+                bbox = diff.getbbox()
+                if bbox:
+                    cropped = img.crop(bbox)
+                    cropped.save(fname)  # overwrite
+                    print(f"Cropped whitespace from {os.path.basename(fname)}")
 
     def _on_sim_cancelled(self):
         """Handle cancellation completion cleanly"""
@@ -2167,23 +2227,74 @@ class Tab4Manager:
         self._reset_processing_state()
 
     def _cfd_results_exist(self, flow_rate=None):
-        """Check if CFD results already exist (case.foam), or if segmentation has already been done (.stl in stl/)."""
+        """Check if CFD results already exist (case.foam + postProcessing + .stl)."""
         cfd_path = self._get_full_cfd_path(flow_rate)
 
         # 1) Segmentation AND CFD done?
         stl_folder = Path(self.app.full_folder_path) / "stl"
         case_foam = os.path.join(cfd_path, "case.foam")
-        # 2) Check if time step 20 exists (indicating a completed simulation)
-        time_step = os.path.join(cfd_path, "20") #TODO: Change this to whatever step number in controlDict
+        # 2) Check if postProcessing exists (indicating simulation outputs were generated)
+        post_processing = os.path.join(cfd_path, "postProcessing")
         
-        # All conditions must be met: case.foam exists, stl folder with files exists, and time step 20 exists
+        # All conditions must be met: case.foam exists, stl folder with files exists, and postProcessing exists
         if (os.path.exists(case_foam) and 
             stl_folder.exists() and 
             any(stl_folder.glob("*.stl")) and
-            os.path.exists(time_step)):
+            os.path.exists(post_processing)):
             return True
 
         return False
+
+    def _get_control_dict_end_time(self, case_dir):
+        """Return endTime from system/controlDict, or None if not found."""
+        control_dict = os.path.join(case_dir, "system", "controlDict")
+        if not os.path.isfile(control_dict):
+            return None
+        try:
+            with open(control_dict, "r") as f:
+                for line in f:
+                    stripped = line.strip()
+                    if not stripped or stripped.startswith(("//", "#")):
+                        continue
+                    if stripped.startswith("endTime"):
+                        # Strip inline comments and parse numeric token.
+                        clean = stripped.split("//", 1)[0].split("#", 1)[0]
+                        match = re.search(r"endTime\s+([0-9eE+\-\.]+)", clean)
+                        if match:
+                            return float(match.group(1))
+        except OSError as e:
+            self.logger.log_warning(f"Failed to read controlDict: {e}")
+        return None
+
+    def _get_max_time_dir(self, case_dir):
+        """Return (max_time_value, max_time_dir) for numeric time directories."""
+        max_time = None
+        max_dir = None
+        try:
+            for entry in os.listdir(case_dir):
+                full = os.path.join(case_dir, entry)
+                if not os.path.isdir(full):
+                    continue
+                try:
+                    value = float(entry)
+                except ValueError:
+                    continue
+                if max_time is None or value > max_time:
+                    max_time = value
+                    max_dir = entry
+        except OSError:
+            return None, None
+        return max_time, max_dir
+
+    def _get_completed_time_dir(self, case_dir):
+        """Return the latest time dir if it reaches endTime; otherwise None."""
+        end_time = self._get_control_dict_end_time(case_dir)
+        max_time, max_dir = self._get_max_time_dir(case_dir)
+        if end_time is None or max_time is None or max_dir is None:
+            return None
+        if max_time + 1e-6 < end_time:
+            return None
+        return max_dir
     
     def _monitor_residuals(self, dirs):
         """Monitor and update residual plots during simulation"""
@@ -2218,7 +2329,8 @@ class Tab4Manager:
                 time.sleep(2)
                 
                 # Check if simulation is complete - use same condition as GUI_ortho
-                if os.path.exists(os.path.join(dirs, "20", "U")):  #TODO: Change this to whatever step number in controlDict
+                completed_dir = self._get_completed_time_dir(dirs)
+                if completed_dir and os.path.exists(os.path.join(dirs, completed_dir, "U")):
                     break
                     
                 # Also check for cancellation flag
@@ -2341,9 +2453,9 @@ class Tab4Manager:
             
             # Load post-processed geometry
             self.update_progress(
-                "Loading post-processed geometry...",
+                "Loading processed geometry...",
                 60,
-                "Loading post-processed geometry..."
+                "Loading processed geometry..."
             )
             
             # Look for assembly image
@@ -2379,10 +2491,7 @@ class Tab4Manager:
             
             # If the images don't exist, run ParaView to generate them
             has_results   = os.path.exists(p_cut_1) and os.path.exists(v_cut_1)
-            has_timesteps = any(
-                d.isdigit() and int(d) >= 20 and os.path.isdir(os.path.join(cfd_path, d))  #TODO: change to number of steps in controlDict
-                for d in os.listdir(cfd_path)
-            )
+            has_timesteps = self._get_completed_time_dir(cfd_path) is not None
 
             if not has_results and has_timesteps:
                 self.logger.log_info("Sim appears done (found time‑step dirs), generating cut‑planes now")
@@ -2556,43 +2665,6 @@ class Tab4Manager:
             font=("Arial", 16),
             text_color=UI_SETTINGS["COLORS"]["TEXT_DARK"]
         ).pack(pady=(5, 0))
-    
-
-    def prune_cfd_folder(self, cfd_dir): #TODO: Re-check this to see which files to remove
-        """
-        Remove all OpenFOAM “scratch” folders so you only keep:
-        - case.foam
-        - *_CFD.png
-        - constant/triSurface/
-        """
-        p = Path(cfd_dir)
-
-        # 1) directories to nuke wholesale
-        for d in ("0", "system", "gnuplot"):
-            target = p / d
-            if target.exists():
-                shutil.rmtree(target)
-
-        # 2) mesh & scripts
-        mesh_dir = p / "constant" / "polyMesh"
-        if mesh_dir.exists():
-            shutil.rmtree(mesh_dir)
-
-        for fname in ("Allrun", "Allclean"):
-            f = p / fname
-            if f.exists():
-                f.unlink()
-
-        # 3) any numeric time‐step directories
-        for sub in p.iterdir():
-            if sub.is_dir() and sub.name.isdigit():
-                shutil.rmtree(sub)
-
-        # 4) any log files
-        for log in p.glob("log.*"):
-            log.unlink()
-
-        print(f"Pruned CFD folder; only case.foam, *_CFD.png, and triSurface remain in {cfd_dir}")
 
     # ==========================================================
     ###### IMAGE RENDER METHODS #######
@@ -2827,13 +2899,16 @@ class Tab4Manager:
 
     
     def _save_results_to_drive(self):
-        """Generate the PDF & copy the session onto the USB, showing a “Saving…” dialog."""
+        """Generate the PDF & copy only the current session results (specific flow rate) onto the USB, showing a "Saving…" dialog."""
         src = getattr(self.app, "full_folder_path", None)
         if not src or not os.path.exists(src):
             tk.messagebox.showerror("Error", "No results folder to save.")
             return
 
-        dest_root = getattr(self.app, "selected_drive_path", None)
+        dest_root_var = getattr(self.app, "selected_drive_path", None)
+        dest_root = dest_root_var.get() if hasattr(dest_root_var, "get") else dest_root_var
+        if isinstance(dest_root, str):
+            dest_root = dest_root.strip()
         if not dest_root or not os.path.isdir(dest_root):
             tk.messagebox.showerror(
                 "Error",
@@ -2863,7 +2938,7 @@ class Tab4Manager:
         try:
             save_dialog.grab_set()
         except tk.TclError:
-            # if it still fails, we’ll just let it run modeless
+            # if it still fails, we'll just let it run modeless
             pass
 
         cancel_event = threading.Event()
@@ -2886,13 +2961,21 @@ class Tab4Manager:
             try:
                 os.makedirs(target, exist_ok=True)
 
+                # Get current flow rate for filtering CFD folders
+                current_flow_str = f"{self.flow_rate.get():.1f}".replace('.', '_')
+                current_cfd_folder = f"CFD_{current_flow_str}"
+
                 # segmentation only
                 if self.analysis_option.get() == "Upper Airway Segmentation":
                     for name in os.listdir(src):
                         if cancel_event.is_set():
                             raise RuntimeError("User cancelled save")
+                        
+                        # Skip all CFD folders for segmentation-only results
                         if name.startswith("CFD_"):
+                            self.logger.log_info(f"Skipping CFD folder for segmentation-only save: {name}")
                             continue
+                            
                         s = os.path.join(src, name)
                         d = os.path.join(target, name)
                         if os.path.isdir(s):
@@ -2910,20 +2993,21 @@ class Tab4Manager:
                     ))
                     return
 
-                # simulation: generate PDF first
+                # simulation: generate PDF first and copy only current flow rate results
                 if "Simulation" in self.analysis_option.get():
                     flow_str = f"{self.flow_rate.get():.1f}".replace('.', '_')
                     pdf_name = f"airway_analysis_flow_{flow_str}.pdf"
-                    pdf_path = os.path.join(src, pdf_name)
+                    pdf_path = os.path.join(target, pdf_name)  # Save PDF directly to target
+
+                    if cancel_event.is_set():
+                        raise RuntimeError("User cancelled save")
 
                     # gather image paths
                     paths = self._report_image_paths()
 
-                    with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as tmp:
-                        preview_pdf = tmp.name
-
-                    generate_airway_report(
-                        pdf_path=preview_pdf,
+                    # Generate PDF directly to target location
+                    success = generate_airway_report(
+                        pdf_path=pdf_path,
                         cfd_dir=paths["cfd_dir"],
                         patient_name=self.app.patient_name.get(),
                         patient_dob=self.app.dob.get(),
@@ -2935,33 +3019,57 @@ class Tab4Manager:
                         postprocessed_image_path=paths["postprocessed_image_path"],
                         cfd_pressure_plot_path=paths["cfd_pressure_plot_path"],
                         cfd_velocity_plot_path=paths["cfd_velocity_plot_path"],
-                        add_preview_elements=True, 
+                        add_preview_elements=False,  # Set to False for final report
                         date_of_report=None,
                         min_csa=self.min_csa
                     )
 
+                    if not success:
+                        raise RuntimeError("Failed to generate PDF report")
+
                     if cancel_event.is_set():
                         raise RuntimeError("User cancelled save")
 
-                # copy everything
+                # Copy files selectively based on analysis type
                 for name in os.listdir(src):
                     if cancel_event.is_set():
                         raise RuntimeError("User cancelled save")
+                    
                     s = os.path.join(src, name)
                     d = os.path.join(target, name)
-                    if os.path.isdir(s):
-                        ok = self._copy_dir_with_cancel(s, d, cancel_event)
-                        if not ok:
-                            raise RuntimeError("User cancelled save")
+                    
+                    # Handle CFD folders - only copy the current flow rate's folder
+                    if name.startswith("CFD_"):
+                        if name == current_cfd_folder:
+                            self.logger.log_info(f"Copying current CFD folder: {name}")
+                            if os.path.isdir(s):
+                                ok = self._copy_dir_with_cancel(s, d, cancel_event)
+                                if not ok:
+                                    raise RuntimeError("User cancelled save")
+                        else:
+                            self.logger.log_info(f"Skipping other CFD folder: {name} (current is {current_cfd_folder})")
+                            continue
                     else:
-                        if cancel_event.is_set():
-                            raise RuntimeError("User cancelled save")
-                        shutil.copy2(s, d)
+                        # Copy all non-CFD files and folders (segmentation results, etc.)
+                        if os.path.isdir(s):
+                            ok = self._copy_dir_with_cancel(s, d, cancel_event)
+                            if not ok:
+                                raise RuntimeError("User cancelled save")
+                        else:
+                            if cancel_event.is_set():
+                                raise RuntimeError("User cancelled save")
+                            shutil.copy2(s, d)
 
                 if not cancel_event.is_set():
+                    # Provide more specific success message
+                    if "Simulation" in self.analysis_option.get():
+                        flow_rate_msg = f" (Flow Rate: {self.flow_rate.get():.1f} LPM)"
+                    else:
+                        flow_rate_msg = ""
+                        
                     self.app.after(0, lambda: tk.messagebox.showinfo(
                         "Success",
-                        f"All results & report saved to:\n{target}"
+                        f"Results{flow_rate_msg} and report saved to:\n{target}"
                     ))
 
             except Exception as e:
@@ -3021,20 +3129,17 @@ class Tab4Manager:
                     case_foam_exists = os.path.exists(os.path.join(cfd_path, "case.foam"))
                     
                     # Find the highest numbered time directory
-                    max_time_step = 0
-                    has_time_dirs = False
-                    
-                    for d in os.listdir(cfd_path):
-                        if d.isdigit() and os.path.isdir(os.path.join(cfd_path, d)):
-                            has_time_dirs = True
-                            step_num = int(d)
-                            if step_num > max_time_step:
-                                max_time_step = step_num
-                    
+                    max_time_step, _ = self._get_max_time_dir(cfd_path)
+                    has_time_dirs = max_time_step is not None
+
                     # Consider simulation incomplete if:
                     # 1. case.foam doesn't exist, OR
-                    # 2. time directories exist but highest step is < 20
-                    incomplete = not case_foam_exists or (has_time_dirs and max_time_step < 20) #TODO: Change to number of steps in controlDict
+                    # 2. endTime exists and highest time is less than endTime
+                    end_time = self._get_control_dict_end_time(cfd_path)
+                    if end_time is not None and has_time_dirs:
+                        incomplete = not case_foam_exists or (max_time_step < end_time)
+                    else:
+                        incomplete = not case_foam_exists
                     
                     # If it looks incomplete OR user confirms, delete it
                     if incomplete or messagebox.askyesno(

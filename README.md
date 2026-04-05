@@ -88,17 +88,17 @@ user_data/
     └── ...
 ```
 
-## Troubleshooting
+<!-- ## Troubleshooting
 This section will list the most commonly encountered issues and how to solve them.
-<!--tk Add issues and how to solve them-->
+tk Add issues and how to solve them-->
 
-## Contributing
+<!--## Contributing
 
 [Instructions for contributors]
 
 ## Contact
 
-[Contact information]
+[Contact information]-->
 
 ## Acknowledgments
 Authors: A. Matos Camarillo (University of Alberta), U. Tummala (University of Alberta), S. Capenakas-Gianoni (University of Alberta), K. Punithakumar (University of Alberta), C.F. Lange (University of Alberta), M. Lagravere-Vich (University of Alberta)

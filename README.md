@@ -18,8 +18,8 @@ A comprehensive graphical user interface designed for medical professionals to p
 If you use the NOSSA App for your work, please cite:
 - **Research group work**:  
   <!-- TODO: Add Uday and Dr. Lange's work citation if applicable -->
-  > Uday and Dr. Lange's work on simulation verification
-  > Silvia's and Alejandro's work
+  > Gianoni-Capenakas S, Matos-Camarillo A, Dot G, Schouman T, Chaurasia A, Pliska B, Lagravere M, Panithakumar K. “Segmentation of the upper airway using deep learning -
+nnUNet.” Journal of Dentistry. 2026;167:106507.
 
 - **nnU-Net**:  
   > Isensee F, Jaeger PF, Kohl SAA, Petersen J, Maier-Hein KH. nnU-Net: a self-configuring method for deep learning-based biomedical image segmentation. Nat Methods. 2021;18(2):203-211. doi:10.1038/s41592-020-01008-z
